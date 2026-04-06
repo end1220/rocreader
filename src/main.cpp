@@ -192,8 +192,9 @@ constexpr uint32_t kReaderFastFlipThresholdMs = 200;
 constexpr uint32_t kReaderPageFlipDebounceMs = 150;
 constexpr int kTxtLineSpacing = 8;
 constexpr int kTxtFontPt = 22;
-constexpr size_t kTxtMaxBytes = 12 * 1024 * 1024;
-constexpr size_t kTxtMaxWrappedLines = 30000;
+constexpr int kTxtLayoutCacheVersion = 2;
+constexpr size_t kTxtMaxBytes = 64 * 1024 * 1024;
+constexpr size_t kTxtMaxWrappedLines = 250000;
 constexpr size_t kTxtLayoutCacheMaxEntries = 4;
 #ifdef HAVE_SDL2_TTF
 constexpr size_t kTextCacheMaxEntries = 128;
@@ -1256,7 +1257,10 @@ int main(int, char **) {
         },
         get_text_viewport_bounds,
         [&](const std::string &path, const SDL_Rect &bounds, int line_h, uintmax_t file_size, long long file_mtime) {
-          return MakeTxtLayoutCacheKey(path, bounds, line_h, file_size, file_mtime, NormalizePathKey);
+          return MakeTxtLayoutCacheKey(path, bounds, line_h, file_size, file_mtime, NormalizePathKey) +
+                 "|v" + std::to_string(kTxtLayoutCacheVersion) +
+                 "|bytes=" + std::to_string(kTxtMaxBytes) +
+                 "|lines=" + std::to_string(kTxtMaxWrappedLines);
         },
         [&](const std::string &cache_key, const std::string &book_path, TxtLayoutCacheEntry &entry) {
           return LoadTxtLayoutCacheFromDisk(txt_text_service, cache_key, book_path, entry);

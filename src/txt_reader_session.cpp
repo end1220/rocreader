@@ -207,11 +207,13 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
     return false;
   }
   std::string raw;
+  bool truncated = false;
   try {
     std::error_code ec;
     const auto fsz = std::filesystem::file_size(std::filesystem::path(path), ec);
     if (!ec && fsz > 0) {
       const size_t cap = static_cast<size_t>(std::min<uintmax_t>(fsz, deps.txt_max_bytes));
+      truncated = fsz > deps.txt_max_bytes;
       raw.resize(cap);
       in.read(raw.data(), static_cast<std::streamsize>(cap));
       raw.resize(static_cast<size_t>(in.gcount()));
@@ -219,15 +221,16 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
       std::ostringstream oss;
       oss << in.rdbuf();
       raw = oss.str();
-      if (raw.size() > deps.txt_max_bytes) raw.resize(deps.txt_max_bytes);
+      if (raw.size() > deps.txt_max_bytes) {
+        raw.resize(deps.txt_max_bytes);
+        truncated = true;
+      }
     }
   } catch (...) {
     std::cerr << "[reader] txt read failed (exception): " << path << "\n";
     return false;
   }
 
-  bool truncated = false;
-  if (raw.size() >= deps.txt_max_bytes) truncated = true;
   std::string decoded;
   if (deps.decode_text_bytes_to_utf8(raw, decoded)) {
     raw = std::move(decoded);
