@@ -16,6 +16,13 @@ constexpr size_t kTxtInitialLineReserve = 1024;
 int ClampIntLocal(int value, int lo, int hi) {
   return std::max(lo, std::min(hi, value));
 }
+
+int ScrollForPercent(int pct, int max_scroll) {
+  if (max_scroll <= 0) return 0;
+  if (pct <= 0) return 0;
+  if (pct >= 100) return max_scroll;
+  return static_cast<int>((static_cast<int64_t>(pct) * max_scroll + 99) / 100);
+}
 }
 
 void FinalizeTextReaderLoading(TxtReaderState &state, const std::string *cache_key, TxtReaderSessionDeps &deps) {
@@ -304,6 +311,25 @@ void TextPageBy(int dir, const std::string &book_path, TxtReaderSessionDeps &dep
   if (deps.ui.mode != ReaderMode::Txt || !deps.ui.txt_reader.open) return;
   const int step = std::max(80, deps.ui.txt_reader.viewport_h - deps.ui.txt_reader.line_h);
   TextScrollBy(dir * step, book_path, deps);
+}
+
+void TextJumpToPercent(int pct, const std::string &book_path, TxtReaderSessionDeps &deps) {
+  if (deps.ui.mode != ReaderMode::Txt || !deps.ui.txt_reader.open) return;
+  TxtReaderState &state = deps.ui.txt_reader;
+  const int clamped_pct = ClampIntLocal(pct, 0, 100);
+  const int current_max_scroll = std::max(0, state.content_h - state.viewport_h);
+  int target_scroll = ScrollForPercent(clamped_pct, current_max_scroll);
+  state.target_scroll_px = target_scroll;
+  if (state.loading) {
+    WarmTextReaderToTarget(state, &state.cache_key, deps);
+  }
+  const int max_scroll = std::max(0, state.content_h - state.viewport_h);
+  target_scroll = ScrollForPercent(clamped_pct, max_scroll);
+  state.target_scroll_px = target_scroll;
+  state.scroll_px = std::clamp(target_scroll, 0, max_scroll);
+  deps.clamp_text_scroll();
+  state.resume_cache_dirty = true;
+  PersistCurrentTxtResumeSnapshot(book_path, false, deps);
 }
 
 int TxtReaderProgressPercent(const TxtReaderState &state) {

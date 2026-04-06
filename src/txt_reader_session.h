@@ -41,4 +41,5 @@ void TickTextBookSession(const std::string &book_path, TxtReaderSessionDeps &dep
 void PersistCurrentTxtResumeSnapshot(const std::string &book_path, bool force, TxtReaderSessionDeps &deps);
 void TextScrollBy(int delta_px, const std::string &book_path, TxtReaderSessionDeps &deps);
 void TextPageBy(int dir, const std::string &book_path, TxtReaderSessionDeps &deps);
+void TextJumpToPercent(int pct, const std::string &book_path, TxtReaderSessionDeps &deps);
 int TxtReaderProgressPercent(const TxtReaderState &state);

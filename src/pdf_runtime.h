@@ -35,6 +35,7 @@ public:
   void ResetView();
   void ScrollByPixels(int delta_px);
   void JumpByScreen(int direction);
+  void SetPage(int page_index);
 
   int PageCount() const;
   bool PageSize(int page_index, int &w, int &h) const;

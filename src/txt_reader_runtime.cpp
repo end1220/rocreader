@@ -2,6 +2,19 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+
+namespace {
+int ClampPercentLocal(int value) {
+  return std::max(0, std::min(100, value));
+}
+
+void SyncOverlayPreviewFromCurrent(ReaderUiState &ui, int current_pct) {
+  const int clamped = ClampPercentLocal(current_pct);
+  ui.progress_overlay_preview_pct = clamped;
+  ui.progress_overlay_preview_pct_f = static_cast<float>(clamped);
+}
+}
 
 void HandleTxtReaderInput(TxtReaderInputDeps &deps) {
   if (deps.ui.mode != ReaderMode::Txt || !deps.ui.txt_reader.open) return;
@@ -51,6 +64,79 @@ void HandleTxtReaderInput(TxtReaderInputDeps &deps) {
 
   deps.ui.progress.page = (deps.ui.txt_reader.line_h > 0) ? (deps.ui.txt_reader.scroll_px / deps.ui.txt_reader.line_h) : 0;
   deps.ui.progress.scroll_y = deps.ui.txt_reader.scroll_px;
+}
+
+void HandleTxtProgressOverlayInput(TxtProgressOverlayInputDeps &deps) {
+  if (!deps.ui.progress_overlay_visible) return;
+
+  if (!deps.interaction_enabled) {
+    deps.ui.progress_overlay_scrubbing = false;
+    deps.ui.progress_overlay_dirty = false;
+    for (auto &value : deps.ui.progress_overlay_hold_speed) value = 0.0f;
+    for (auto &value : deps.ui.progress_overlay_long_fired) value = false;
+    SyncOverlayPreviewFromCurrent(deps.ui, deps.current_pct);
+    return;
+  }
+
+  std::array<Button, 2> hdirs = {Button::Left, Button::Right};
+  for (Button b : hdirs) {
+    const int bi = static_cast<int>(b);
+    const int dir = (b == Button::Right) ? 1 : -1;
+    if (deps.input.IsJustPressed(b)) {
+      SyncOverlayPreviewFromCurrent(deps.ui, deps.current_pct);
+      deps.ui.progress_overlay_hold_speed[bi] = 0.0f;
+      deps.ui.progress_overlay_long_fired[bi] = false;
+    }
+    if (deps.input.IsPressed(b)) {
+      const float hold = deps.input.HoldTime(b);
+      if (hold >= deps.hold_delay_sec) {
+        if (!deps.ui.progress_overlay_scrubbing || !deps.ui.progress_overlay_dirty) {
+          SyncOverlayPreviewFromCurrent(deps.ui, deps.current_pct);
+        }
+        deps.ui.progress_overlay_scrubbing = true;
+        deps.ui.progress_overlay_dirty = true;
+        deps.ui.progress_overlay_long_fired[bi] = true;
+        const float next_speed = (deps.ui.progress_overlay_hold_speed[bi] <= 0.0f)
+                                     ? deps.hold_speed_min
+                                     : std::min(deps.hold_speed_max,
+                                                deps.ui.progress_overlay_hold_speed[bi] +
+                                                    deps.hold_speed_accel * deps.dt);
+        deps.ui.progress_overlay_hold_speed[bi] = next_speed;
+        deps.ui.progress_overlay_preview_pct_f += static_cast<float>(dir) * next_speed * deps.dt;
+        deps.ui.progress_overlay_preview_pct_f = std::clamp(deps.ui.progress_overlay_preview_pct_f, 0.0f, 100.0f);
+        deps.ui.progress_overlay_preview_pct = ClampPercentLocal(
+            static_cast<int>(std::lround(deps.ui.progress_overlay_preview_pct_f)));
+      }
+    } else {
+      deps.ui.progress_overlay_hold_speed[bi] = 0.0f;
+    }
+  }
+
+  for (Button b : hdirs) {
+    const int bi = static_cast<int>(b);
+    if (!deps.input.IsJustReleased(b)) continue;
+    deps.ui.progress_overlay_hold_speed[bi] = 0.0f;
+    if (deps.ui.progress_overlay_long_fired[bi] && deps.ui.progress_overlay_dirty) {
+      deps.jump_to_percent(deps.ui.progress_overlay_preview_pct);
+      SyncOverlayPreviewFromCurrent(deps.ui, deps.ui.progress_overlay_preview_pct);
+      deps.ui.progress_overlay_dirty = false;
+    } else {
+      const int dir = (b == Button::Right) ? 1 : -1;
+      const int target_pct = ClampPercentLocal(deps.current_pct + dir * deps.tap_step_pct);
+      deps.jump_to_percent(target_pct);
+      SyncOverlayPreviewFromCurrent(deps.ui, target_pct);
+      deps.ui.progress_overlay_dirty = false;
+    }
+    deps.ui.progress_overlay_long_fired[bi] = false;
+    const bool any_lr_held = deps.input.IsPressed(Button::Left) || deps.input.IsPressed(Button::Right);
+    deps.ui.progress_overlay_scrubbing = any_lr_held;
+  }
+
+  if (!deps.input.IsPressed(Button::Left) && !deps.input.IsPressed(Button::Right) &&
+      !deps.ui.progress_overlay_dirty) {
+    deps.ui.progress_overlay_scrubbing = false;
+    SyncOverlayPreviewFromCurrent(deps.ui, deps.current_pct);
+  }
 }
 
 void DrawTxtReaderRuntime(TxtReaderRenderDeps &deps) {

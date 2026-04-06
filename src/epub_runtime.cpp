@@ -1167,6 +1167,22 @@ void EpubRuntime::JumpByScreen(int direction) {
   }
 }
 
+void EpubRuntime::SetPage(int page_index) {
+  if (!impl_ || !impl_->reader.IsOpen()) return;
+  impl_->MarkInteraction();
+  const int page_count = std::max(1, impl_->reader.PageCount());
+  const int clamped_page = std::clamp(page_index, 0, page_count - 1);
+  const int old_page = impl_->target_state.location.page_num;
+  impl_->preferred_prefetch_dir = (clamped_page >= old_page) ? 1 : -1;
+  impl_->target_state.location.page_num = clamped_page;
+  impl_->target_state.location.y_offset = 0;
+  impl_->NormalizeState(impl_->target_state);
+  if (impl_->TryUseCachedTarget()) return;
+  SDL_LockMutex(impl_->mutex);
+  impl_->RequestRenderLocked();
+  SDL_UnlockMutex(impl_->mutex);
+}
+
 int EpubRuntime::PageCount() const {
   if (!impl_) return 0;
   return impl_->reader.PageCount();

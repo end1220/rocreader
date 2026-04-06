@@ -74,9 +74,15 @@ struct ReaderUiState {
   ReaderMode mode = ReaderMode::None;
   TxtReaderState txt_reader;
   bool progress_overlay_visible = false;
+  bool progress_overlay_scrubbing = false;
+  bool progress_overlay_dirty = false;
+  int progress_overlay_preview_pct = 0;
+  float progress_overlay_preview_pct_f = 0.0f;
   float hold_cooldown = 0.0f;
   std::array<float, kButtonCount> hold_speed{};
   std::array<bool, kButtonCount> long_fired{};
+  std::array<float, kButtonCount> progress_overlay_hold_speed{};
+  std::array<bool, kButtonCount> progress_overlay_long_fired{};
   bool warned_mock_pdf_backend = false;
   bool warned_epub_backend = false;
 };
@@ -85,4 +91,8 @@ inline void ResetReaderInputState(ReaderUiState &state) {
   state.hold_cooldown = 0.0f;
   for (auto &value : state.hold_speed) value = 0.0f;
   for (auto &value : state.long_fired) value = false;
+  state.progress_overlay_scrubbing = false;
+  state.progress_overlay_dirty = false;
+  for (auto &value : state.progress_overlay_hold_speed) value = 0.0f;
+  for (auto &value : state.progress_overlay_long_fired) value = false;
 }

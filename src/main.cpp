@@ -177,6 +177,11 @@ constexpr float kCardScaleTailRatio = 0.52f;     // last 52% enters slow tail
 constexpr float kCardScaleTailMinMul = 0.10f;    // tail minimum speed multiplier
 constexpr float kPageSlideDurationSec = 0.52f;
 constexpr int kReaderTapStepPx = 56;
+constexpr int kTxtProgressOverlayTapStepPct = 1;
+constexpr float kTxtProgressOverlayHoldDelaySec = 0.25f;
+constexpr float kTxtProgressOverlayHoldSpeedMinPct = 6.0f;
+constexpr float kTxtProgressOverlayHoldSpeedMaxPct = 26.0f;
+constexpr float kTxtProgressOverlayHoldAccelPct = 36.0f;
 constexpr float kSettingsToggleGuardSec = 0.16f;
 constexpr float kMenuToggleDebounceSec = 0.12f;
 constexpr uint32_t kDeferredSaveDelayMs = 1500;
@@ -1311,6 +1316,89 @@ int main(int, char **) {
     TextPageBy(dir, current_book, deps);
   };
 
+  auto text_jump_to_percent = [&](int pct) {
+    auto deps = make_txt_session_deps();
+    TextJumpToPercent(pct, current_book, deps);
+  };
+
+  auto page_progress_pct_for_index = [&](int page_index, int page_count) -> int {
+    if (page_count <= 1) return 100;
+    return ClampInt(static_cast<int>((static_cast<int64_t>(ClampInt(page_index, 0, page_count - 1)) * 100) /
+                                     (page_count - 1)),
+                    0, 100);
+  };
+
+  auto page_index_for_percent = [&](int current_page, int target_pct, int page_count) -> int {
+    if (page_count <= 1) return 0;
+    const int clamped_current = ClampInt(current_page, 0, page_count - 1);
+    const int clamped_target = ClampInt(target_pct, 0, 100);
+    const int current_pct = page_progress_pct_for_index(clamped_current, page_count);
+    if (clamped_target == current_pct) return clamped_current;
+
+    if (clamped_target > current_pct) {
+      for (int page = clamped_current + 1; page < page_count; ++page) {
+        if (page_progress_pct_for_index(page, page_count) >= clamped_target) {
+          return page;
+        }
+      }
+      return page_count - 1;
+    }
+
+    for (int page = clamped_current - 1; page >= 0; --page) {
+      if (page_progress_pct_for_index(page, page_count) <= clamped_target) {
+        return page;
+      }
+    }
+    return 0;
+  };
+
+  auto reader_jump_to_percent = [&](int pct) {
+    if (reader_mode == ReaderMode::Txt && txt_reader.open) {
+      text_jump_to_percent(pct);
+      return;
+    }
+    if (reader_mode == ReaderMode::Pdf && pdf_runtime.IsOpen()) {
+      pdf_runtime.SetPage(page_index_for_percent(pdf_runtime.CurrentPage(),
+                                                pct,
+                                                std::max(1, pdf_runtime.PageCount())));
+      return;
+    }
+    if (reader_mode == ReaderMode::Epub && epub_runtime.IsOpen()) {
+      epub_runtime.SetPage(page_index_for_percent(epub_runtime.CurrentPage(),
+                                                 pct,
+                                                 std::max(1, epub_runtime.PageCount())));
+    }
+  };
+
+  auto current_reader_progress_pct = [&]() -> int {
+    if (reader_mode == ReaderMode::Txt && txt_reader.open) {
+      return TxtReaderProgressPercent(txt_reader);
+    }
+    if (reader_mode == ReaderMode::Pdf && pdf_runtime.IsOpen()) {
+      const int page_count = std::max(1, pdf_runtime.PageCount());
+      const int page_idx = ClampInt(pdf_runtime.Progress().page, 0, page_count - 1);
+      return (page_count <= 1)
+                 ? 100
+                 : ClampInt(static_cast<int>((static_cast<int64_t>(page_idx) * 100) / (page_count - 1)), 0, 100);
+    }
+    if (reader_mode == ReaderMode::Epub && epub_runtime.IsOpen()) {
+      const int page_count = std::max(1, epub_runtime.PageCount());
+      const int page_idx = ClampInt(epub_runtime.Progress().page, 0, page_count - 1);
+      return (page_count <= 1)
+                 ? 100
+                 : ClampInt(static_cast<int>((static_cast<int64_t>(page_idx) * 100) / (page_count - 1)), 0, 100);
+    }
+    return 0;
+  };
+
+  auto current_txt_layout_progress_pct = [&]() -> int {
+    if (!(reader_mode == ReaderMode::Txt && txt_reader.open)) return 0;
+    if (!txt_reader.loading) return 100;
+    const size_t total = txt_reader.pending_raw.size();
+    if (total == 0) return 0;
+    return ClampInt(static_cast<int>((static_cast<int64_t>(txt_reader.parse_pos) * 100) / total), 0, 100);
+  };
+
   bool running = true;
   uint32_t prev_ticks = SDL_GetTicks();
   while (running) {
@@ -1581,17 +1669,47 @@ int main(int, char **) {
       } else {
         if (input.IsJustPressed(Button::X)) {
           reader_progress_overlay_visible = !reader_progress_overlay_visible;
+          if (reader_progress_overlay_visible) {
+            const int pct = current_reader_progress_pct();
+            reader_ui.progress_overlay_preview_pct = pct;
+            reader_ui.progress_overlay_preview_pct_f = static_cast<float>(pct);
+            reader_ui.progress_overlay_dirty = false;
+            reader_ui.progress_overlay_scrubbing = false;
+          } else {
+            reader_ui.progress_overlay_dirty = false;
+            reader_ui.progress_overlay_scrubbing = false;
+          }
         }
-        if (reader_mode == ReaderMode::Txt && txt_reader.open) {
-          TxtReaderInputDeps txt_input_deps{
+        if (reader_progress_overlay_visible &&
+            ((reader_mode == ReaderMode::Txt && txt_reader.open) ||
+             (reader_mode == ReaderMode::Pdf && pdf_runtime.IsOpen()) ||
+             (reader_mode == ReaderMode::Epub && epub_runtime.IsOpen()))) {
+          TxtProgressOverlayInputDeps txt_overlay_input_deps{
               input,
               reader_ui,
               dt,
-              kReaderTapStepPx,
-              text_scroll_by,
-              text_page_by,
+              current_reader_progress_pct(),
+              !(reader_mode == ReaderMode::Txt && txt_reader.open && txt_reader.loading),
+              kTxtProgressOverlayTapStepPct,
+              kTxtProgressOverlayHoldDelaySec,
+              kTxtProgressOverlayHoldSpeedMinPct,
+              kTxtProgressOverlayHoldSpeedMaxPct,
+              kTxtProgressOverlayHoldAccelPct,
+              reader_jump_to_percent,
           };
-          HandleTxtReaderInput(txt_input_deps);
+          HandleTxtProgressOverlayInput(txt_overlay_input_deps);
+        } else if (reader_mode == ReaderMode::Txt && txt_reader.open) {
+          {
+            TxtReaderInputDeps txt_input_deps{
+                input,
+                reader_ui,
+                dt,
+                kReaderTapStepPx,
+                text_scroll_by,
+                text_page_by,
+            };
+            HandleTxtReaderInput(txt_input_deps);
+          }
         } else if (reader_mode == ReaderMode::Pdf) {
           const int pdf_rotation = pdf_runtime.Progress().rotation;
           if (input.IsJustPressed(Button::L2)) {
@@ -1969,22 +2087,16 @@ int main(int, char **) {
         }
 #ifdef HAVE_SDL2_TTF
         if (reader_progress_overlay_visible) {
-          int pct = 0;
-          if (reader_mode == ReaderMode::Txt && txt_reader.open) {
-            pct = TxtReaderProgressPercent(txt_reader);
-          } else if (reader_mode == ReaderMode::Pdf && pdf_runtime.IsOpen()) {
-            const int page_count = std::max(1, pdf_runtime.PageCount());
-            const int page_idx = ClampInt(
-                pdf_runtime.Progress().page,
-                0, page_count - 1);
-            pct = (page_count <= 1) ? 100 : ClampInt(static_cast<int>((static_cast<int64_t>(page_idx) * 100) / (page_count - 1)), 0, 100);
-          } else if (reader_mode == ReaderMode::Epub && epub_runtime.IsOpen()) {
-            const int page_count = std::max(1, epub_runtime.PageCount());
-            const int page_idx = ClampInt(
-                epub_runtime.Progress().page,
-                0, page_count - 1);
-            pct = (page_count <= 1) ? 100 : ClampInt(static_cast<int>((static_cast<int64_t>(page_idx) * 100) / (page_count - 1)), 0, 100);
-          }
+          const int actual_pct = current_reader_progress_pct();
+          const int txt_layout_pct = current_txt_layout_progress_pct();
+          const bool txt_progress_computing =
+              (reader_mode == ReaderMode::Txt && txt_reader.open && txt_reader.loading);
+          const int pct =
+              txt_progress_computing
+                  ? txt_layout_pct
+                  : (reader_ui.progress_overlay_dirty
+                   ? ClampInt(reader_ui.progress_overlay_preview_pct, 0, 100)
+                   : actual_pct);
           const int panel_h = 58;
           const int panel_y = Layout().screen_h - panel_h - Layout().reader_progress_panel_margin_bottom;
           DrawRect(renderer,
@@ -1999,6 +2111,11 @@ int main(int, char **) {
           const int bar_w = Layout().screen_w - Layout().reader_progress_bar_margin_x * 2;
           const int bar_h = 12;
           DrawRect(renderer, bar_x, bar_y, bar_w, bar_h, SDL_Color{60, 60, 60, 220});
+          const int actual_fill_source = txt_progress_computing ? txt_layout_pct : actual_pct;
+          const int actual_fill_w = std::max(0, std::min(bar_w, (bar_w * actual_fill_source) / 100));
+          if (actual_fill_w > 0) {
+            DrawRect(renderer, bar_x, bar_y, actual_fill_w, bar_h, SDL_Color{125, 125, 125, 215});
+          }
           const int fill_w = std::max(0, std::min(bar_w, (bar_w * pct) / 100));
           if (fill_w > 0) {
             DrawRect(renderer, bar_x, bar_y, fill_w, bar_h, SDL_Color{230, 230, 230, 235});
@@ -2006,7 +2123,13 @@ int main(int, char **) {
           DrawRect(renderer, bar_x, bar_y, bar_w, bar_h, SDL_Color{255, 255, 255, 220}, false);
 
           SDL_Color tc{245, 245, 245, 255};
-          const std::string percent = std::to_string(pct) + "%";
+          const std::string pct_text = (pct < 10) ? ("0" + std::to_string(pct)) : std::to_string(pct);
+          const std::string percent =
+              txt_progress_computing ? ("(进度条计算中" + pct_text + "%)")
+                                     : (((reader_mode == ReaderMode::Pdf && pdf_runtime.IsRenderPending()) ||
+                                         (reader_mode == ReaderMode::Epub && epub_runtime.IsRenderPending()))
+                                            ? ("(页面渲染中) " + std::to_string(pct) + "%")
+                                            : (std::to_string(pct) + "%"));
           if (TextCacheEntry *te = get_text_texture(percent, tc); te && te->texture) {
             SDL_Rect td{Layout().screen_w - Layout().reader_progress_percent_margin_x - te->w, panel_y + 8, te->w, te->h};
             SDL_RenderCopy(renderer, te->texture, nullptr, &td);

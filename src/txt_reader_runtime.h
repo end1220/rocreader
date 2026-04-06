@@ -25,5 +25,20 @@ struct TxtReaderRenderDeps {
   std::function<void(const std::string &, int, int)> draw_text_line;
 };
 
+struct TxtProgressOverlayInputDeps {
+  const InputManager &input;
+  ReaderUiState &ui;
+  float dt = 0.0f;
+  int current_pct = 0;
+  bool interaction_enabled = true;
+  int tap_step_pct = 1;
+  float hold_delay_sec = 0.0f;
+  float hold_speed_min = 0.0f;
+  float hold_speed_max = 0.0f;
+  float hold_speed_accel = 0.0f;
+  std::function<void(int)> jump_to_percent;
+};
+
 void HandleTxtReaderInput(TxtReaderInputDeps &deps);
+void HandleTxtProgressOverlayInput(TxtProgressOverlayInputDeps &deps);
 void DrawTxtReaderRuntime(TxtReaderRenderDeps &deps);
