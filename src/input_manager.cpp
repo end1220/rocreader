@@ -3,7 +3,6 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
-#include <iostream>
 
 const char *ButtonName(Button b) {
   switch (b) {
@@ -63,54 +62,17 @@ void InputManager::BeginFrame(float dt) {
 
 void InputManager::HandleEvent(const SDL_Event &e) {
   if (e.type == SDL_KEYDOWN && !e.key.repeat) {
-    const Button mapped = KeyToButton(e.key.keysym.sym);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " sym=" << SDL_GetKeyName(e.key.keysym.sym)
-              << " keycode=" << static_cast<int>(e.key.keysym.sym)
-              << " mapped=" << ButtonName(mapped) << "\n";
-    if (mapped == Button::VolUp || mapped == Button::VolDown) {
-      std::cout << "[native_h700] volume event: keydown sym=" << SDL_GetKeyName(e.key.keysym.sym)
-                << " mapped=" << ButtonName(mapped) << "\n";
-    }
-    SetDown(mapped, true);
+    SetDown(KeyToButton(e.key.keysym.sym), true);
   } else if (e.type == SDL_KEYUP) {
-    const Button mapped = KeyToButton(e.key.keysym.sym);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " sym=" << SDL_GetKeyName(e.key.keysym.sym)
-              << " keycode=" << static_cast<int>(e.key.keysym.sym)
-              << " mapped=" << ButtonName(mapped) << "\n";
-    if (mapped == Button::VolUp || mapped == Button::VolDown) {
-      std::cout << "[native_h700] volume event: keyup sym=" << SDL_GetKeyName(e.key.keysym.sym)
-                << " mapped=" << ButtonName(mapped) << "\n";
-    }
-    SetDown(mapped, false);
+    SetDown(KeyToButton(e.key.keysym.sym), false);
   } else if (e.type == SDL_CONTROLLERBUTTONDOWN) {
-    const Button mapped = PadToButton(e.cbutton.button);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " button=" << static_cast<int>(e.cbutton.button)
-              << " mapped=" << ButtonName(mapped) << "\n";
-    if (mapped == Button::VolUp || mapped == Button::VolDown) {
-      std::cout << "[native_h700] volume event: pad down button=" << static_cast<int>(e.cbutton.button)
-                << " mapped=" << ButtonName(mapped) << "\n";
-    }
-    SetDown(mapped, true);
+    SetDown(PadToButton(e.cbutton.button), true);
   } else if (e.type == SDL_CONTROLLERBUTTONUP) {
-    const Button mapped = PadToButton(e.cbutton.button);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " button=" << static_cast<int>(e.cbutton.button)
-              << " mapped=" << ButtonName(mapped) << "\n";
-    if (mapped == Button::VolUp || mapped == Button::VolDown) {
-      std::cout << "[native_h700] volume event: pad up button=" << static_cast<int>(e.cbutton.button)
-                << " mapped=" << ButtonName(mapped) << "\n";
-    }
-    SetDown(mapped, false);
+    SetDown(PadToButton(e.cbutton.button), false);
   } else if (e.type == SDL_CONTROLLERAXISMOTION) {
     constexpr int kDeadzone = 16000;
     const int axis = e.caxis.axis;
     const int val = static_cast<int>(e.caxis.value);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " axis=" << axis
-              << " value=" << val << "\n";
     if (axis == SDL_CONTROLLER_AXIS_LEFTX || axis == SDL_CONTROLLER_AXIS_RIGHTX) {
       SetDown(Button::Left, val < -kDeadzone);
       SetDown(Button::Right, val > kDeadzone);
@@ -119,30 +81,11 @@ void InputManager::HandleEvent(const SDL_Event &e) {
       SetDown(Button::Down, val > kDeadzone);
     }
   } else if (e.type == SDL_JOYBUTTONDOWN) {
-    const Button mapped = JoyButtonToButton(e.jbutton.button);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " button=" << static_cast<int>(e.jbutton.button)
-              << " mapped=" << ButtonName(mapped) << "\n";
-    if (mapped == Button::VolUp || mapped == Button::VolDown) {
-      std::cout << "[native_h700] volume event: joy down button=" << static_cast<int>(e.jbutton.button)
-                << " mapped=" << ButtonName(mapped) << "\n";
-    }
-    SetDown(mapped, true);
+    SetDown(JoyButtonToButton(e.jbutton.button), true);
   } else if (e.type == SDL_JOYBUTTONUP) {
-    const Button mapped = JoyButtonToButton(e.jbutton.button);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " button=" << static_cast<int>(e.jbutton.button)
-              << " mapped=" << ButtonName(mapped) << "\n";
-    if (mapped == Button::VolUp || mapped == Button::VolDown) {
-      std::cout << "[native_h700] volume event: joy up button=" << static_cast<int>(e.jbutton.button)
-                << " mapped=" << ButtonName(mapped) << "\n";
-    }
-    SetDown(mapped, false);
+    SetDown(JoyButtonToButton(e.jbutton.button), false);
   } else if (e.type == SDL_JOYHATMOTION) {
     const uint8_t v = e.jhat.value;
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " hat=" << static_cast<int>(e.jhat.hat)
-              << " value=" << static_cast<int>(v) << "\n";
     SetDown(Button::Up, (v & SDL_HAT_UP) != 0);
     SetDown(Button::Down, (v & SDL_HAT_DOWN) != 0);
     SetDown(Button::Left, (v & SDL_HAT_LEFT) != 0);
@@ -151,9 +94,6 @@ void InputManager::HandleEvent(const SDL_Event &e) {
     constexpr int kDeadzone = 16000;
     const int axis = e.jaxis.axis;
     const int val = static_cast<int>(e.jaxis.value);
-    std::cout << "[native_h700] raw input: type=" << SdlEventName(e.type)
-              << " axis=" << axis
-              << " value=" << val << "\n";
     if (axis == 0 || axis == 6) {
       SetDown(Button::Left, val < -kDeadzone);
       SetDown(Button::Right, val > kDeadzone);

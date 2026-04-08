@@ -3,67 +3,38 @@
 #include <SDL.h>
 
 #include <algorithm>
-#include <array>
-#include <cstdlib>
 #include <iostream>
 
-VolumeController::VolumeController(bool prefer_system) : prefer_system_(prefer_system) {}
+VolumeController::VolumeController(bool prefer_system) : prefer_system_(prefer_system), service_(prefer_system) {}
 
 bool VolumeController::UsesSystemVolume() const { return prefer_system_; }
 
-bool VolumeController::AdjustUp() { return AdjustByPercent(+5); }
-
-bool VolumeController::AdjustDown() { return AdjustByPercent(-5); }
-
-bool VolumeController::AdjustByPercent(int delta_percent) {
-  if (!prefer_system_) return false;
-  const std::string delta =
-      (delta_percent >= 0) ? (std::to_string(delta_percent) + "%+") : (std::to_string(-delta_percent) + "%-");
-  std::cout << "[native_h700] volume adjust request: mode=system delta=" << delta << "\n";
-
-  if (!last_working_command_.empty()) {
-    const std::string cmd = last_working_command_ + delta + " unmute >/dev/null 2>&1";
-    std::cout << "[native_h700] volume command retry: " << cmd << "\n";
-    if (Run(cmd)) {
-      std::cout << "[native_h700] volume command success: cached\n";
-      return true;
-    }
-    std::cout << "[native_h700] volume command failed: cached\n";
-    last_working_command_.clear();
-  }
-
-  static const std::array<const char *, 4> kPrefixes = {
-      "amixer -q sset ",
-      "/usr/bin/amixer -q sset ",
-      "amixer -q -c 0 sset ",
-      "/usr/bin/amixer -q -c 0 sset ",
-  };
-  static const std::array<const char *, 6> kControls = {
-      "Master",
-      "Speaker",
-      "Playback",
-      "PCM",
-      "Headphone",
-      "DAC",
-  };
-
-  for (const char *prefix : kPrefixes) {
-    for (const char *control : kControls) {
-      const std::string base = std::string(prefix) + "'" + control + "' ";
-      const std::string cmd = base + delta + " unmute >/dev/null 2>&1";
-      std::cout << "[native_h700] volume command try: control=" << control << " cmd=" << cmd << "\n";
-      if (Run(cmd)) {
-        last_working_command_ = base;
-        std::cout << "[native_h700] volume command success: control=" << control << "\n";
-        return true;
-      }
-    }
-  }
-  std::cout << "[native_h700] volume command failed: no matching amixer control\n";
-  return false;
+bool VolumeController::AdjustUp() {
+  int ignored_percent = 0;
+  return AdjustBySteps(+1, ignored_percent);
 }
 
-bool VolumeController::Run(const std::string &command) { return std::system(command.c_str()) == 0; }
+bool VolumeController::AdjustDown() {
+  int ignored_percent = 0;
+  return AdjustBySteps(-1, ignored_percent);
+}
+
+bool VolumeController::RefreshPercent(int &out_percent) {
+  if (!prefer_system_) return false;
+  if (!service_.RefreshVolumeOnly(levels_.volume) || !levels_.volume.available) return false;
+  out_percent = std::clamp(levels_.volume.level * 10, 0, 100);
+  return true;
+}
+
+bool VolumeController::AdjustBySteps(int delta_steps, int &out_percent) {
+  if (!prefer_system_) return false;
+  std::cout << "[native_h700] volume adjust request: mode=system steps=" << delta_steps << "\n";
+  if (!service_.AdjustVolume(delta_steps, levels_) || !levels_.volume.available) return false;
+  out_percent = std::clamp(levels_.volume.level * 10, 0, 100);
+  std::cout << "[native_h700] volume adjust success: percent=" << out_percent
+            << " level=" << levels_.volume.level << "\n";
+  return true;
+}
 
 void TickAppUiState(AppUiState &state, float dt) {
   state.menu_toggle_cooldown = std::max(0.0f, state.menu_toggle_cooldown - dt);
@@ -83,12 +54,17 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
             << " app_volume=" << config.Get().sfx_volume << "\n";
 
   bool system_volume_changed = false;
+  int system_percent = state.volume_display_percent;
   if (volume_controller.UsesSystemVolume()) {
     if (vol_up_pressed) system_volume_changed = volume_controller.AdjustUp() || system_volume_changed;
     if (vol_down_pressed) system_volume_changed = volume_controller.AdjustDown() || system_volume_changed;
     if (system_volume_changed) {
+      volume_controller.RefreshPercent(system_percent);
+    }
+    if (system_volume_changed) {
       std::cout << "[native_h700] system volume: "
-                << (vol_up_pressed && vol_down_pressed ? "unchanged-step" : (vol_up_pressed ? "up" : "down")) << "\n";
+                << (vol_up_pressed && vol_down_pressed ? "unchanged-step" : (vol_up_pressed ? "up" : "down"))
+                << " percent=" << system_percent << "\n";
     } else if (!state.warned_system_volume_fallback) {
       state.warned_system_volume_fallback = true;
       std::cout << "[native_h700] system volume control unavailable, fallback to app sfx volume\n";
@@ -98,8 +74,8 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
   if (!system_volume_changed) {
     NativeConfig &cfg = config.Mutable();
     const int old_volume = cfg.sfx_volume;
-    if (vol_up_pressed) cfg.sfx_volume = std::min(SDL_MIX_MAXVOLUME, cfg.sfx_volume + 8);
-    if (vol_down_pressed) cfg.sfx_volume = std::max(0, cfg.sfx_volume - 8);
+    if (vol_up_pressed) cfg.sfx_volume = std::min(SDL_MIX_MAXVOLUME, cfg.sfx_volume + 13);
+    if (vol_down_pressed) cfg.sfx_volume = std::max(0, cfg.sfx_volume - 13);
     if (cfg.sfx_volume != old_volume) {
       if (apply_sfx_volume) apply_sfx_volume(cfg.sfx_volume);
       config.MarkDirty();
@@ -111,8 +87,13 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
     state.volume_display_percent =
         std::clamp((cfg.sfx_volume * 100) / std::max(1, SDL_MIX_MAXVOLUME), 0, 100);
   } else {
-    if (vol_up_pressed) state.volume_display_percent = std::clamp(state.volume_display_percent + 5, 0, 100);
-    if (vol_down_pressed) state.volume_display_percent = std::clamp(state.volume_display_percent - 5, 0, 100);
+    NativeConfig &cfg = config.Mutable();
+    const int clamped_percent = std::clamp(system_percent, 0, 100);
+    if (cfg.system_volume_percent != clamped_percent) {
+      cfg.system_volume_percent = clamped_percent;
+      config.MarkDirty();
+    }
+    state.volume_display_percent = system_percent;
   }
 
   state.volume_display_until = now + 1500;

@@ -3,6 +3,7 @@
 #include "app_stores.h"
 #include "animation.h"
 #include "input_manager.h"
+#include "system_controls.h"
 
 #include <cstdint>
 #include <functional>
@@ -15,13 +16,14 @@ public:
   bool UsesSystemVolume() const;
   bool AdjustUp();
   bool AdjustDown();
+  bool RefreshPercent(int &out_percent);
 
 private:
-  bool AdjustByPercent(int delta_percent);
-  static bool Run(const std::string &command);
+  bool AdjustBySteps(int delta_steps, int &out_percent);
 
   bool prefer_system_ = false;
-  std::string last_working_command_;
+  SystemControlService service_;
+  SystemControlLevels levels_;
 };
 
 struct AppUiState {

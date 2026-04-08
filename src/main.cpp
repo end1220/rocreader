@@ -47,12 +47,15 @@
 #include "epub_runtime.h"
 #include "epub_reader.h"
 #include "input_manager.h"
+#include "lid_power_control.h"
 #include "pdf_reader.h"
 #include "pdf_runtime.h"
 #include "progress_store.h"
 #include "reader_core.h"
 #include "reader_session_ops.h"
 #include "reader_session_state.h"
+#include "system_controls.h"
+#include "system_settings_runtime.h"
 #include "shelf_runtime.h"
 #include "settings_runtime.h"
 #include "sdl_utils.h"
@@ -168,6 +171,7 @@ constexpr int kIdleWaitMs = 100;
 constexpr uint32_t kActiveFrameBudgetMs = 33;
 constexpr uint32_t kAvatarMarqueeFrameBudgetMs = 16;
 constexpr uint32_t kPeriodicTickFrameBudgetMs = 50;
+constexpr uint32_t kAutoSleepIdleMs = 5u * 60u * 1000u;
 constexpr float kCardLerpSpeed = 18.0f;
 constexpr float kCardMoveLinearSpeedX = 860.0f;  // px/s for center move transition
 constexpr float kCardMoveLinearSpeedY = 860.0f;  // px/s for center move transition
@@ -809,8 +813,13 @@ int main(int, char **) {
   const std::filesystem::path progress_path = resolve_runtime_file("native_progress.tsv");
   const std::filesystem::path favorites_path = resolve_runtime_file("native_favorites.txt");
   const std::filesystem::path history_path = resolve_runtime_file("native_history.txt");
+  const char *env_power_script = std::getenv("ROCREADER_PWR_SCRIPT");
+  const std::filesystem::path power_script_path =
+      (env_power_script && *env_power_script) ? std::filesystem::path(env_power_script)
+                                              : std::filesystem::path("/mnt/mod/ctrl/pwr_new.sh");
   std::cout << "[native_h700] keymap path: " << keymap_path.lexically_normal().string() << "\n";
   std::cout << "[native_h700] config path: " << config_path.lexically_normal().string() << "\n";
+  std::cout << "[native_h700] power script path: " << power_script_path.lexically_normal().string() << "\n";
 
   InputManager input(keymap_path.string(), use_h700_defaults);
   ConfigStore config(config_path.string());
@@ -818,25 +827,64 @@ int main(int, char **) {
     config.Mutable().audio = true;
     config.MarkDirty();
     config.Save();
-    std::cout << "[native_h700] sound: force enable audio=1 on startup\n";
   }
   ProgressStore progress(progress_path.string());
   RecentPathStore favorites_store(favorites_path.string(), NormalizePathKey);
   RecentPathStore history_store(history_path.string(), NormalizePathKey);
   VolumeController volume_controller(use_h700_defaults);
   SystemStatusMonitor system_status;
-  std::cout << "[native_h700] volume controller: prefer_system="
-            << (volume_controller.UsesSystemVolume() ? "1" : "0") << "\n";
-  const SystemStatusSnapshot &initial_system_status = system_status.Snapshot();
-  std::cout << "[native_h700] battery monitor: capacity_path=" << system_status.BatteryCapacityPath()
-            << " status_path=" << system_status.BatteryStatusPath()
-            << " percent=" << initial_system_status.battery_percent
-            << " charging=" << (initial_system_status.charging ? "1" : "0")
-            << " charging_text=" << initial_system_status.charging_text
-            << " clock=" << initial_system_status.clock_text << "\n";
+  SystemControlService system_control_service(use_h700_defaults);
+  LidPowerController lid_power_controller(power_script_path);
+  SystemSettingsState system_settings_state{};
+  ContributorAvatarState contributor_avatar_state{};
+  if (use_h700_defaults) {
+    bool changed = false;
+    if (system_control_service.ApplyVolumePercent(config.Get().system_volume_percent, system_settings_state.levels.volume) &&
+        system_settings_state.levels.volume.available) {
+      const int applied_percent =
+          std::clamp((system_settings_state.levels.volume.level * 100) /
+                         std::max(1, system_settings_state.levels.volume.max_level),
+                     0, 100);
+      if (config.Mutable().system_volume_percent != applied_percent) {
+        config.Mutable().system_volume_percent = applied_percent;
+        changed = true;
+      }
+    } else {
+      system_control_service.RefreshVolumeOnly(system_settings_state.levels.volume);
+    }
+
+    if (system_control_service.ApplyBrightnessLevel(config.Get().screen_brightness_level,
+                                                    system_settings_state.levels.brightness) &&
+        system_settings_state.levels.brightness.available) {
+      const int applied_level =
+          std::clamp(system_settings_state.levels.brightness.level, 0, system_settings_state.levels.brightness.max_level);
+      if (config.Mutable().screen_brightness_level != applied_level) {
+        config.Mutable().screen_brightness_level = applied_level;
+        changed = true;
+      }
+    } else {
+      system_control_service.Refresh(system_settings_state.levels);
+    }
+    if (changed || config.IsDirty()) {
+      config.MarkDirty();
+      config.Save();
+    }
+  } else {
+    system_control_service.Refresh(system_settings_state.levels);
+  }
+
   AppUiState app_ui{};
-  app_ui.volume_display_percent =
-      ClampInt((config.Get().sfx_volume * 100) / std::max(1, SDL_MIX_MAXVOLUME), 0, 100);
+  app_ui.volume_display_percent = ClampInt((config.Get().sfx_volume * 100) / std::max(1, SDL_MIX_MAXVOLUME), 0, 100);
+  if (system_settings_state.levels.volume.available) {
+    app_ui.volume_display_percent = std::clamp(
+        (system_settings_state.levels.volume.level * 100) / std::max(1, system_settings_state.levels.volume.max_level),
+        0, 100);
+  } else {
+    int initial_system_volume_percent = 0;
+    if (volume_controller.RefreshPercent(initial_system_volume_percent)) {
+      app_ui.volume_display_percent = initial_system_volume_percent;
+    }
+  }
   SfxBank sfx;
   bool sfx_ready = false;
   bool sfx_init_attempted = false;
@@ -906,14 +954,17 @@ int main(int, char **) {
   bool settings_close_armed = true;
   std::vector<SettingId> menu_items = {
       SettingId::KeyGuide,
-      SettingId::ClearHistory,
-      SettingId::CleanCache,
+      SettingId::SystemControls,
       SettingId::TxtToUtf8,
       SettingId::ContributorAvatars,
       SettingId::ContactMe,
       SettingId::ExitApp};
   int menu_selected = 0;
-  ContributorAvatarState contributor_avatar_state{};
+  bool lid_close_screen_off_enabled = config.Get().lid_close_screen_off;
+  lid_power_controller.SetEnabled(lid_close_screen_off_enabled);
+  system_settings_state.lid_close_screen_off_enabled = lid_close_screen_off_enabled;
+  uint32_t last_user_input_tick = SDL_GetTicks();
+  bool auto_sleep_waiting_for_input = false;
   TxtTranscodeJob txt_transcode_job{};
   ReaderUiState reader_ui{};
   std::string &current_book = reader_ui.current_book;
@@ -1494,20 +1545,52 @@ int main(int, char **) {
         favorites_store.ShouldFlush(loop_now, kDeferredSaveDelayMs) ||
         history_store.ShouldFlush(loop_now, kDeferredSaveDelayMs);
     const int idle_wait_ms = (!has_active_animation && has_pending_flush && !needs_periodic_tick) ? static_cast<int>(kIdleFlushOnlyWaitMs) : kIdleWaitMs;
+    auto is_user_input_event = [](const SDL_Event &event) {
+      switch (event.type) {
+      case SDL_KEYDOWN:
+        return event.key.repeat == 0;
+      case SDL_CONTROLLERBUTTONDOWN:
+      case SDL_JOYBUTTONDOWN:
+        return true;
+      case SDL_JOYHATMOTION:
+        return event.jhat.value != SDL_HAT_CENTERED;
+      default:
+        return false;
+      }
+    };
+    auto note_user_input = [&](const SDL_Event &event) {
+      if (!is_user_input_event(event)) return;
+      last_user_input_tick = SDL_GetTicks();
+      auto_sleep_waiting_for_input = false;
+    };
+    auto maybe_trigger_auto_sleep = [&]() {
+      if (!use_h700_defaults || !config.Get().lid_close_screen_off || auto_sleep_waiting_for_input) return;
+      const uint32_t now = SDL_GetTicks();
+      if (now - last_user_input_tick < kAutoSleepIdleMs) return;
+      if (lid_power_controller.TriggerAutoIfEnabled()) {
+        auto_sleep_waiting_for_input = true;
+      }
+    };
     if (has_active_animation) {
       while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) running = false;
+        note_user_input(e);
         input.HandleEvent(e);
       }
+      maybe_trigger_auto_sleep();
     } else {
       if (SDL_WaitEventTimeout(&e, idle_wait_ms)) {
         if (e.type == SDL_QUIT) running = false;
+        note_user_input(e);
         input.HandleEvent(e);
         while (SDL_PollEvent(&e)) {
           if (e.type == SDL_QUIT) running = false;
+          note_user_input(e);
           input.HandleEvent(e);
         }
+        maybe_trigger_auto_sleep();
       } else {
+        maybe_trigger_auto_sleep();
         system_status.Poll(SDL_GetTicks());
         if (has_pending_flush && !needs_periodic_tick) {
         // Wake only to flush deferred IO; keep the current frame untouched.
@@ -1685,6 +1768,10 @@ int main(int, char **) {
       HandleShelfInput(shelf_input_deps);
     } else if (state == State::Settings) {
       const NativeConfig &ui_cfg = config.Get();
+      if (!menu_items.empty() &&
+          menu_items[std::clamp(menu_selected, 0, static_cast<int>(menu_items.size()) - 1)] == SettingId::SystemControls) {
+        system_control_service.Refresh(system_settings_state.levels);
+      }
       SyncContributorAvatarState(contributor_avatar_state, contributor_avatar_entries.size());
       SettingsRuntimeInputDeps settings_input_deps{
           input,
@@ -1696,6 +1783,67 @@ int main(int, char **) {
           menu_selected,
           menu_items,
           menu_anim,
+          system_settings_state,
+          SystemSettingsCallbacks{
+              [&](SystemControlLevels &levels) {
+                system_control_service.Refresh(levels);
+              },
+              [&](int delta, SystemControlLevels &levels) {
+                const bool ok = system_control_service.AdjustVolume(delta, levels);
+                if (ok && levels.volume.available) {
+                  const int saved_percent =
+                      std::clamp((levels.volume.level * 100) / std::max(1, levels.volume.max_level), 0, 100);
+                  if (config.Mutable().system_volume_percent != saved_percent) {
+                    config.Mutable().system_volume_percent = saved_percent;
+                    config.MarkDirty();
+                  }
+                }
+                return ok;
+              },
+              [&](int delta, SystemControlLevels &levels) {
+                const bool ok = system_control_service.AdjustBrightness(delta, levels);
+                if (ok && levels.brightness.available) {
+                  const int saved_level =
+                      std::clamp(levels.brightness.level, 0, std::max(1, levels.brightness.max_level));
+                  if (config.Mutable().screen_brightness_level != saved_level) {
+                    config.Mutable().screen_brightness_level = saved_level;
+                    config.MarkDirty();
+                  }
+                }
+                return ok;
+              },
+              [&](SystemSettingsState &settings_state) {
+                settings_state.lid_close_screen_off_enabled = config.Get().lid_close_screen_off;
+              },
+              [&](bool enabled, SystemSettingsState &settings_state) {
+                NativeConfig &cfg = config.Mutable();
+                cfg.lid_close_screen_off = enabled;
+                config.MarkDirty();
+                lid_power_controller.SetEnabled(enabled);
+                settings_state.lid_close_screen_off_enabled = enabled;
+                last_user_input_tick = SDL_GetTicks();
+                auto_sleep_waiting_for_input = false;
+                return true;
+              },
+              [&]() {
+                clear_runtime_cache_files();
+                return true;
+              },
+              [&]() {
+                history_store.Clear();
+                if (current_category() == ShelfCategory::History) {
+                  current_folder.clear();
+                  clear_cover_cache();
+                  rebuild_shelf_items();
+                  focus_index = 0;
+                  shelf_page = 0;
+                  page_animating = false;
+                  page_slide.Snap(0.0f);
+                  grid_item_anims.clear();
+                }
+                return true;
+              },
+          },
           contributor_avatar_state,
           contributor_avatar_entries.size(),
           [&](int selected_index) { update_selected_avatar_badge_texture(selected_index); },
@@ -2226,6 +2374,7 @@ int main(int, char **) {
             menu_anim,
             kSidebarMaskMaxAlpha,
             txt_transcode_job,
+            system_settings_state,
             contributor_avatar_entries,
             contributor_avatar_state,
             SettingsRuntimeLayout{

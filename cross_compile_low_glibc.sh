@@ -183,6 +183,7 @@ find_so_in_libdir() {
   "$PKG_CMD" --exists SDL2_image && echo "[low_glibc] pkg OK: SDL2_image" || echo "[low_glibc] pkg MISS: SDL2_image"
   "$PKG_CMD" --exists SDL2_ttf && echo "[low_glibc] pkg OK: SDL2_ttf" || echo "[low_glibc] pkg MISS: SDL2_ttf"
   "$PKG_CMD" --exists SDL2_mixer && echo "[low_glibc] pkg OK: SDL2_mixer" || echo "[low_glibc] pkg MISS: SDL2_mixer"
+  "$PKG_CMD" --exists alsa && echo "[low_glibc] pkg OK: alsa" || echo "[low_glibc] pkg MISS: alsa"
   "$PKG_CMD" --exists poppler-cpp && echo "[low_glibc] pkg OK: poppler-cpp" || echo "[low_glibc] pkg MISS: poppler-cpp"
   "$PKG_CMD" --exists libzip && echo "[low_glibc] pkg OK: libzip" || echo "[low_glibc] pkg MISS: libzip"
   "$PKG_CMD" --exists mupdf && echo "[low_glibc] pkg OK: mupdf" || echo "[low_glibc] pkg MISS: mupdf"
@@ -207,6 +208,8 @@ find_so_in_libdir() {
   FALLBACK_TTF_LIBS=""
   FALLBACK_MIX_CFLAGS=""
   FALLBACK_MIX_LIBS=""
+  FALLBACK_ALSA_CFLAGS=""
+  FALLBACK_ALSA_LIBS=""
   FALLBACK_POPPLER_CFLAGS=""
   FALLBACK_POPPLER_LIBS=""
   FALLBACK_LIBZIP_CFLAGS=""
@@ -233,6 +236,13 @@ find_so_in_libdir() {
     FALLBACK_MIX_CFLAGS="-I$SYSROOT/usr/include/SDL2"
     FALLBACK_MIX_LIBS="-L$LIBDIR -lSDL2_mixer"
     echo "[low_glibc] fallback enable: SDL2_mixer"
+  fi
+
+  if [ -f "$SYSROOT/usr/include/alsa/asoundlib.h" ] && \
+     { [ -f "$LIBDIR/libasound.so" ] || [ -f "$LIBDIR/libasound.so.2" ]; }; then
+    FALLBACK_ALSA_CFLAGS="-I$SYSROOT/usr/include"
+    FALLBACK_ALSA_LIBS="-L$LIBDIR -lasound"
+    echo "[low_glibc] fallback enable: alsa"
   fi
 
   if [ -f "$SYSROOT/usr/include/poppler/cpp/poppler-document.h" ] && \
@@ -342,6 +352,17 @@ find_so_in_libdir() {
   echo "[low_glibc] LIBZIP_CFLAGS=$LIBZIP_CFLAGS_FINAL"
   echo "[low_glibc] LIBZIP_LIBS=$LIBZIP_LIBS_FINAL"
 
+  ALSA_CFLAGS_FINAL="$FALLBACK_ALSA_CFLAGS"
+  ALSA_LIBS_FINAL="$FALLBACK_ALSA_LIBS"
+  if [ -z "$ALSA_CFLAGS_FINAL" ]; then
+    ALSA_CFLAGS_FINAL="$("$PKG_CMD" --cflags alsa 2>/dev/null || true)"
+  fi
+  if [ -z "$ALSA_LIBS_FINAL" ]; then
+    ALSA_LIBS_FINAL="$("$PKG_CMD" --libs alsa 2>/dev/null || true)"
+  fi
+  echo "[low_glibc] ALSA_CFLAGS=$ALSA_CFLAGS_FINAL"
+  echo "[low_glibc] ALSA_LIBS=$ALSA_LIBS_FINAL"
+
   echo "[low_glibc] make clean"
   make clean
   echo "[low_glibc] make"
@@ -357,6 +378,8 @@ find_so_in_libdir() {
     TTF_LIBS="$FALLBACK_TTF_LIBS" \
     MIX_CFLAGS="$FALLBACK_MIX_CFLAGS" \
     MIX_LIBS="$FALLBACK_MIX_LIBS" \
+    ALSA_CFLAGS="$ALSA_CFLAGS_FINAL" \
+    ALSA_LIBS="$ALSA_LIBS_FINAL" \
     POPPLER_CFLAGS="$FALLBACK_POPPLER_CFLAGS" \
     POPPLER_LIBS="$FALLBACK_POPPLER_LIBS" \
     LIBZIP_CFLAGS="$LIBZIP_CFLAGS_FINAL" \

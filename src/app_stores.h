@@ -11,7 +11,10 @@ struct NativeConfig {
   int theme = 0;
   bool animations = true;
   bool audio = true;
-  int sfx_volume = 96;
+  int sfx_volume = 64;
+  int system_volume_percent = 50;
+  int screen_brightness_level = 8;
+  bool lid_close_screen_off = true;
 };
 
 class ConfigStore {

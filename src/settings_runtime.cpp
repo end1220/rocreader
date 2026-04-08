@@ -1,5 +1,6 @@
 #include "settings_runtime.h"
 #include "contributor_avatar_runtime.h"
+#include "system_settings_runtime.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +9,7 @@
 namespace {
 std::string SettingLabel(SettingId id) {
   switch (id) {
+  case SettingId::SystemControls: return std::string(u8"\u7cfb\u7edf\u8bbe\u7f6e");
   case SettingId::KeyGuide: return std::string(u8"\u6309\u952e\u8bf4\u660e");
   case SettingId::ClearHistory: return std::string(u8"\u6e05\u9664\u5386\u53f2");
   case SettingId::CleanCache: return std::string(u8"\u6e05\u9664\u7f13\u5b58");
@@ -21,6 +23,7 @@ std::string SettingLabel(SettingId id) {
 
 SDL_Texture *SelectedPreviewTexture(const UiAssets &ui_assets, SettingId id) {
   switch (id) {
+  case SettingId::SystemControls: return ui_assets.settings_preview_default;
   case SettingId::KeyGuide: return ui_assets.settings_preview_keyguide;
   case SettingId::ClearHistory: return ui_assets.settings_preview_clean_history;
   case SettingId::CleanCache: return ui_assets.settings_preview_clean_cache;
@@ -52,10 +55,13 @@ void HandleSettingsInput(SettingsRuntimeInputDeps &deps) {
   const int menu_count = static_cast<int>(deps.menu_items.size());
   const SettingId current_id =
       menu_count > 0 ? deps.menu_items[std::clamp(deps.menu_selected, 0, menu_count - 1)] : SettingId::KeyGuide;
+  const bool system_settings_active =
+      current_id == SettingId::SystemControls && deps.system_settings_state.panel_active;
   const bool avatar_grid_active =
       current_id == SettingId::ContributorAvatars && deps.contributor_avatar_state.grid_active;
 
-  if (!avatar_grid_active && deps.settings_close_armed && deps.settings_toggle_guard <= 0.0f && !deps.menu_closing &&
+  if (!system_settings_active && !avatar_grid_active && deps.settings_close_armed && deps.settings_toggle_guard <= 0.0f &&
+      !deps.menu_closing &&
       (deps.input.IsJustPressed(Button::B) || deps.menu_toggle_request)) {
     if (deps.ui_cfg.animations) deps.menu_anim.AnimateTo(0.0f, 0.16f, animation::Ease::InOutCubic);
     else deps.menu_anim.Snap(0.0f);
@@ -68,6 +74,10 @@ void HandleSettingsInput(SettingsRuntimeInputDeps &deps) {
   if (menu_count <= 0) return;
 
   const SettingId id = current_id;
+  if (id == SettingId::SystemControls &&
+      HandleSystemSettingsInput(deps.input, deps.system_settings_state, deps.system_settings_callbacks)) {
+    return;
+  }
   if (id == SettingId::ContributorAvatars &&
       HandleContributorAvatarInput(deps.input, deps.dt, deps.contributor_avatar_state, deps.contributor_avatar_count,
                                    deps.on_contributor_avatar_confirm)) {
@@ -127,6 +137,7 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
 
   int text_left = x + 32;
   int y = menu_y + 84 + deps.layout.settings_content_offset_y;
+  int first_menu_item_y = y;
 #ifdef HAVE_SDL2_TTF
   const std::string menu_title = std::string(u8"ROC\u5168\u80fd\u6f2b\u753b\u9605\u8bfb\u5668");
   const SDL_Color title_color{240, 246, 255, 255};
@@ -145,6 +156,7 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
   deps.draw_rect(x + 8, divider_y, menu_width - 16, 1, SDL_Color{66, 95, 124, 255}, true);
   y = divider_y + 12;
   text_left = x + 32;
+  first_menu_item_y = y;
 #else
   deps.draw_rect(x + 8, 72 + deps.layout.settings_content_offset_y, menu_width - 16, 1,
                  SDL_Color{66, 95, 124, 255}, true);
@@ -174,6 +186,20 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
 
   const SettingId selected =
       deps.menu_items[std::clamp(deps.menu_selected, 0, static_cast<int>(deps.menu_items.size()) - 1)];
+  if (selected == SettingId::SystemControls) {
+    DrawSystemSettingsPreview(SystemSettingsRenderDeps{
+        deps.renderer,
+        preview_rect,
+        deps.system_settings_state,
+        deps.cfg.theme != 0,
+        first_menu_item_y,
+        42,
+        30,
+        deps.draw_rect,
+        deps.get_text_texture,
+        deps.get_title_text_texture,
+    });
+  }
   if (selected == SettingId::ContributorAvatars && !deps.contributor_avatar_entries.empty()) {
     DrawContributorAvatarPreview(ContributorAvatarRenderDeps{
         deps.renderer,

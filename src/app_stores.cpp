@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 #include <utility>
 
 namespace {
@@ -27,11 +28,17 @@ void ConfigStore::MarkDirty() {
 
 void ConfigStore::Save() {
   std::ofstream out(path_, std::ios::trunc);
-  if (!out) return;
+  if (!out) {
+    std::cout << "[native_h700][config] save failed path=" << path_ << "\n";
+    return;
+  }
   out << "theme=" << cfg_.theme << "\n";
   out << "animations=" << (cfg_.animations ? 1 : 0) << "\n";
   out << "audio=" << (cfg_.audio ? 1 : 0) << "\n";
   out << "sfx_volume=" << cfg_.sfx_volume << "\n";
+  out << "system_volume_percent=" << cfg_.system_volume_percent << "\n";
+  out << "screen_brightness_level=" << cfg_.screen_brightness_level << "\n";
+  out << "lid_close_screen_off=" << (cfg_.lid_close_screen_off ? 1 : 0) << "\n";
   dirty_ = false;
   last_dirty_tick_ = 0;
 }
@@ -39,6 +46,8 @@ void ConfigStore::Save() {
 void ConfigStore::Load() {
   std::ifstream in(path_);
   if (!in) return;
+  bool saw_system_volume_percent = false;
+  bool saw_screen_brightness_level = false;
   std::string line;
   while (std::getline(in, line)) {
     const size_t eq = line.find('=');
@@ -49,8 +58,21 @@ void ConfigStore::Load() {
     else if (k == "animations") cfg_.animations = (v == "1");
     else if (k == "audio") cfg_.audio = (v == "1");
     else if (k == "sfx_volume") cfg_.sfx_volume = std::stoi(v);
+    else if (k == "system_volume_percent") {
+      cfg_.system_volume_percent = std::stoi(v);
+      saw_system_volume_percent = true;
+    } else if (k == "screen_brightness_level") {
+      cfg_.screen_brightness_level = std::stoi(v);
+      saw_screen_brightness_level = true;
+    }
+    else if (k == "lid_close_screen_off") cfg_.lid_close_screen_off = (v == "1");
   }
   cfg_.sfx_volume = std::clamp(cfg_.sfx_volume, 0, kSdlMixMaxVolume);
+  cfg_.system_volume_percent = std::clamp(cfg_.system_volume_percent, 0, 100);
+  cfg_.screen_brightness_level = std::clamp(cfg_.screen_brightness_level, 0, 8);
+  if (!saw_system_volume_percent || !saw_screen_brightness_level) {
+    dirty_ = true;
+  }
 }
 
 PathSetStore::PathSetStore(std::string path, std::function<std::string(const std::string &)> normalize_path_key)
