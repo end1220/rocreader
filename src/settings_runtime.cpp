@@ -17,6 +17,7 @@ std::string SettingLabel(SettingId id) {
   case SettingId::TxtToUtf8: return std::string(u8"TXT\u8bbe\u7f6e");
   case SettingId::ContributorAvatars: return std::string(u8"\u8d21\u732e\u8005\u5934\u50cf");
   case SettingId::ContactMe: return std::string(u8"\u8054\u7cfb\u6211");
+  case SettingId::VersionUpdate: return std::string(u8"\u7248\u672c\u66f4\u65b0");
   case SettingId::ExitApp: return std::string(u8"\u9000\u51fa");
   }
   return {};
@@ -31,6 +32,7 @@ SDL_Texture *SelectedPreviewTexture(const UiAssets &ui_assets, SettingId id) {
   case SettingId::TxtToUtf8: return ui_assets.settings_preview_default;
   case SettingId::ContributorAvatars: return ui_assets.settings_preview_default;
   case SettingId::ContactMe: return ui_assets.settings_preview_contact;
+  case SettingId::VersionUpdate: return ui_assets.settings_preview_default;
   case SettingId::ExitApp: return ui_assets.settings_preview_exit;
   }
   return ui_assets.settings_preview_default;
@@ -62,8 +64,10 @@ void HandleSettingsInput(SettingsRuntimeInputDeps &deps) {
       current_id == SettingId::TxtToUtf8 && deps.txt_settings_state.panel_active;
   const bool avatar_grid_active =
       current_id == SettingId::ContributorAvatars && deps.contributor_avatar_state.grid_active;
+  const bool version_update_active =
+      current_id == SettingId::VersionUpdate && deps.version_update_state.panel_active;
 
-  if (!system_settings_active && !txt_settings_active && !avatar_grid_active &&
+  if (!system_settings_active && !txt_settings_active && !avatar_grid_active && !version_update_active &&
       deps.settings_close_armed && deps.settings_toggle_guard <= 0.0f &&
       !deps.menu_closing &&
       (deps.input.IsJustPressed(Button::B) || deps.menu_toggle_request)) {
@@ -89,6 +93,10 @@ void HandleSettingsInput(SettingsRuntimeInputDeps &deps) {
   if (id == SettingId::ContributorAvatars &&
       HandleContributorAvatarInput(deps.input, deps.dt, deps.contributor_avatar_state, deps.contributor_avatar_count,
                                    deps.on_contributor_avatar_confirm)) {
+    return;
+  }
+  if (id == SettingId::VersionUpdate &&
+      HandleVersionUpdateInput(deps.input, deps.version_update_state, deps.version_update_callbacks)) {
     return;
   }
 
@@ -131,6 +139,10 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
       int ph = 0;
       deps.get_texture_size(preview_tex, pw, ph);
       SDL_Rect pd{preview_x, menu_y, pw, ph};
+      if (selected == SettingId::VersionUpdate) {
+        pd.x = preview_x + std::max(0, (preview_w - pw) / 2);
+        pd.y = menu_y + std::max(0, (menu_h - ph) / 2);
+      }
       SDL_RenderCopy(deps.renderer, preview_tex, nullptr, &pd);
       preview_rect = pd;
     }
@@ -228,6 +240,17 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
         deps.contributor_avatar_state,
         deps.draw_rect,
         deps.get_text_texture,
+    });
+  }
+  if (selected == SettingId::VersionUpdate) {
+    DrawVersionUpdatePreview(VersionUpdateRenderDeps{
+        deps.renderer,
+        preview_rect,
+        deps.version_update_state,
+        deps.cfg.theme != 0,
+        deps.draw_rect,
+        deps.get_text_texture,
+        deps.get_title_text_texture,
     });
   }
 

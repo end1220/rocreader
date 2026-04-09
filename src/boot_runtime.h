@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-enum class BootPhase { CountBooks, ScanBooks, GenerateCovers, Finalize, Done };
+enum class BootPhase { UpdateReplay, CountBooks, ScanBooks, GenerateCovers, Finalize, Done };
 
 struct BootRuntimeState {
   float timer = 0.0f;
@@ -25,6 +25,9 @@ struct BootRuntimeState {
   size_t count_root_index = 0;
   bool count_iterator_active = false;
   std::string status_text = "Loading resources...(0/0)";
+  bool update_replay_success = false;
+  std::string update_replay_version;
+  std::filesystem::path update_status_path;
 };
 
 struct BootRuntimeTickDeps {
@@ -52,3 +55,4 @@ struct BootRuntimeRenderDeps {
 
 void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDeps &deps);
 void DrawBootRuntime(const BootRuntimeRenderDeps &deps);
+void InitializeBootRuntimeReplay(BootRuntimeState &state, const std::filesystem::path &status_path);

@@ -9,6 +9,7 @@
 #include "txt_settings_runtime.h"
 #include "ui_assets.h"
 #include "ui_text_cache.h"
+#include "version_update_runtime.h"
 
 #include <SDL.h>
 
@@ -16,7 +17,7 @@
 #include <string>
 #include <vector>
 
-enum class SettingId { SystemControls, KeyGuide, ClearHistory, CleanCache, TxtToUtf8, ContributorAvatars, ContactMe, ExitApp };
+enum class SettingId { SystemControls, KeyGuide, ClearHistory, CleanCache, TxtToUtf8, ContributorAvatars, ContactMe, VersionUpdate, ExitApp };
 
 struct SettingsRuntimeInputDeps {
   const InputManager &input;
@@ -35,6 +36,8 @@ struct SettingsRuntimeInputDeps {
   ContributorAvatarState &contributor_avatar_state;
   size_t contributor_avatar_count = 0;
   std::function<void(int)> on_contributor_avatar_confirm;
+  VersionUpdateState &version_update_state;
+  VersionUpdateCallbacks version_update_callbacks;
   bool menu_toggle_request = false;
   std::function<void()> on_close;
   std::function<void()> on_exit_app;
@@ -68,6 +71,7 @@ struct SettingsRuntimeRenderDeps {
   const TxtSettingsState &txt_settings_state;
   const std::vector<ContributorAvatarEntry> &contributor_avatar_entries;
   const ContributorAvatarState &contributor_avatar_state;
+  const VersionUpdateState &version_update_state;
   SettingsRuntimeLayout layout;
   std::function<void(int, int, int, int, SDL_Color, bool)> draw_rect;
   std::function<void(SDL_Texture *, int &, int &)> get_texture_size;

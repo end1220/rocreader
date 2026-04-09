@@ -67,6 +67,7 @@
 #include "ui_assets.h"
 #include "ui_assets_loader.h"
 #include "ui_text_cache.h"
+#include "version_update_runtime.h"
 #include "animation.h"
 
 namespace {
@@ -263,6 +264,75 @@ std::string GetLowerExt(const std::string &path) {
   } catch (...) {
     return {};
   }
+}
+
+bool TryExtractVersionFromArchiveName(const std::string &filename, std::string &out_version) {
+  const std::string lower_name = ToLowerAscii(filename);
+  const size_t ver_pos = lower_name.rfind("ver");
+  const size_t zip_pos = lower_name.rfind(".zip");
+  if (ver_pos == std::string::npos || zip_pos == std::string::npos || ver_pos >= zip_pos) return false;
+  const size_t version_start = ver_pos;
+  const size_t version_len = zip_pos - version_start;
+  if (version_len == 0) return false;
+  out_version = filename.substr(version_start, version_len);
+  return !out_version.empty();
+}
+
+std::string DetectVersionFromDownloadsDir(const std::filesystem::path &downloads_dir) {
+  std::error_code ec;
+  if (downloads_dir.empty() || !std::filesystem::exists(downloads_dir, ec) || ec ||
+      !std::filesystem::is_directory(downloads_dir, ec)) {
+    return {};
+  }
+
+  std::filesystem::file_time_type newest_time{};
+  bool found = false;
+  std::string best_version;
+
+  for (std::filesystem::directory_iterator it(downloads_dir, ec), end; it != end; it.increment(ec)) {
+    if (ec) {
+      ec.clear();
+      continue;
+    }
+    if (!it->is_regular_file(ec)) {
+      ec.clear();
+      continue;
+    }
+    std::string version;
+    if (!TryExtractVersionFromArchiveName(it->path().filename().string(), version)) continue;
+    const auto write_time = it->last_write_time(ec);
+    if (ec) {
+      ec.clear();
+      continue;
+    }
+    if (!found || write_time > newest_time) {
+      newest_time = write_time;
+      best_version = version;
+      found = true;
+    }
+  }
+
+  return found ? best_version : std::string{};
+}
+
+std::string DetectVersionLabel(const std::filesystem::path &runtime_root) {
+  std::vector<std::filesystem::path> candidates;
+  if (!runtime_root.empty()) {
+    candidates.push_back(runtime_root / "Downloads");
+    candidates.push_back(runtime_root.parent_path() / "Downloads");
+  }
+  std::error_code ec;
+  const std::filesystem::path cwd = std::filesystem::current_path(ec);
+  if (!ec) {
+    candidates.push_back(cwd / "Downloads");
+    candidates.push_back(cwd.parent_path() / "Downloads");
+  }
+
+  for (const auto &candidate : candidates) {
+    const std::string version = DetectVersionFromDownloadsDir(candidate);
+    if (!version.empty()) return version;
+  }
+  return "v0.0.0-ui";
 }
 
 std::string Utf8Ellipsize(const std::string &text, size_t max_chars) {
@@ -940,6 +1010,12 @@ int main(int, char **) {
   State state = State::Boot;
   State settings_return_state = State::Shelf;
   BootRuntimeState boot_runtime;
+  {
+    std::error_code ec;
+    const std::filesystem::path boot_status_path =
+        std::filesystem::current_path(ec) / "cache" / "update_boot_status.txt";
+    if (!ec) InitializeBootRuntimeReplay(boot_runtime, boot_status_path);
+  }
   std::vector<BookItem> &shelf_items = shelf_runtime.items;
   std::unordered_map<std::string, CoverCacheEntry> cover_textures;
   std::string current_folder;
@@ -969,7 +1045,11 @@ int main(int, char **) {
       SettingId::TxtToUtf8,
       SettingId::ContributorAvatars,
       SettingId::ContactMe,
+      SettingId::VersionUpdate,
       SettingId::ExitApp};
+  VersionUpdateState version_update_state{};
+  version_update_state.current_version = DetectVersionLabel({});
+  InitializeVersionUpdateState(version_update_state);
   int menu_selected = 0;
   bool lid_close_screen_off_enabled = config.Get().lid_close_screen_off;
   lid_power_controller.SetEnabled(lid_close_screen_off_enabled);
@@ -1541,6 +1621,7 @@ int main(int, char **) {
     hold_cooldown = std::max(0.0f, hold_cooldown - dt);
     settings_toggle_guard = std::max(0.0f, settings_toggle_guard - dt);
     TickAppUiState(app_ui, dt);
+    TickVersionUpdateState(version_update_state, dt);
 
     input.BeginFrame(dt);
     SDL_Event e;
@@ -1927,6 +2008,10 @@ int main(int, char **) {
           contributor_avatar_state,
           contributor_avatar_entries.size(),
           [&](int selected_index) { update_selected_avatar_badge_texture(selected_index); },
+          version_update_state,
+          VersionUpdateCallbacks{
+              [&](VersionUpdateState &update_state) { BeginVersionUpdateDownload(update_state); },
+          },
           false,
           [&]() { state = settings_return_state; },
           [&]() { running = false; },
@@ -2462,6 +2547,7 @@ int main(int, char **) {
             txt_settings_state,
             contributor_avatar_entries,
             contributor_avatar_state,
+            version_update_state,
             SettingsRuntimeLayout{
                 Layout().screen_w,
                 Layout().screen_h,
@@ -2553,6 +2639,7 @@ int main(int, char **) {
     }
   }
   flush_deferred_writes(true);
+  ShutdownVersionUpdateState(version_update_state);
   clear_cover_cache();
   destroy_selected_avatar_badge_texture();
   DestroyContributorAvatarEntries(contributor_avatar_entries, forget_texture_size);

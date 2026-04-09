@@ -3,8 +3,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 
 namespace {
+constexpr float kUpdateReplayDurationSec = 1.8f;
+
 bool StartNextBootCountRoot(BootRuntimeState &state, const std::vector<std::string> &books_roots) {
   const auto opts = std::filesystem::directory_options::skip_permission_denied;
   while (state.count_root_index < books_roots.size()) {
@@ -23,6 +26,8 @@ bool StartNextBootCountRoot(BootRuntimeState &state, const std::vector<std::stri
 
 float BootProgressRatio(const BootRuntimeState &state) {
   switch (state.phase) {
+  case BootPhase::UpdateReplay:
+    return std::clamp(state.timer / kUpdateReplayDurationSec, 0.0f, 1.0f);
   case BootPhase::CountBooks: {
     const float pulse = std::fmod(state.timer * 0.85f, 1.0f);
     return 0.05f + pulse * 0.15f;
@@ -51,11 +56,63 @@ std::string MakeBootScanText(size_t current, size_t total) {
 std::string MakeBootCoverText(size_t current, size_t total) {
   return std::string(u8"封面缓存生成中...（") + std::to_string(current) + "/" + std::to_string(total) + u8"）";
 }
+std::string MakeUpdateReplayText(float ratio, bool success, const std::string &version) {
+  const std::string version_suffix = version.empty() ? std::string() : (" " + version);
+  if (!success) return std::string(u8"\u66f4\u65b0\u5b89\u88c5\u672a\u5b8c\u6210\uff0c\u6b63\u5728\u542f\u52a8\u5f53\u524d\u7248\u672c");
+  if (ratio < 0.30f) return std::string(u8"\u6b63\u5728\u5b89\u88c5\u66f4\u65b0\u5305") + version_suffix;
+  if (ratio < 0.60f) return std::string(u8"\u6b63\u5728\u89e3\u538b\u66f4\u65b0\u8d44\u6e90") + version_suffix;
+  if (ratio < 0.90f) return std::string(u8"\u6b63\u5728\u66ff\u6362\u8fd0\u884c\u65f6\u6587\u4ef6") + version_suffix;
+  return std::string(u8"\u66f4\u65b0\u5b89\u88c5\u5b8c\u6210\uff0c\u5373\u5c06\u8fdb\u5165\u4e66\u67b6");
+}
+
+bool LoadUpdateReplayStatus(const std::filesystem::path &status_path, bool &out_success, std::string &out_version) {
+  std::ifstream in(status_path);
+  if (!in) return false;
+  std::string line;
+  bool saw_result = false;
+  while (std::getline(in, line)) {
+    const size_t eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    const std::string key = line.substr(0, eq);
+    const std::string value = line.substr(eq + 1);
+    if (key == "result") {
+      out_success = (value == "success");
+      saw_result = true;
+    } else if (key == "version") {
+      out_version = value;
+    }
+  }
+  return saw_result;
+}
+}
+
+void InitializeBootRuntimeReplay(BootRuntimeState &state, const std::filesystem::path &status_path) {
+  bool success = false;
+  std::string version;
+  if (!LoadUpdateReplayStatus(status_path, success, version)) return;
+  state.phase = BootPhase::UpdateReplay;
+  state.timer = 0.0f;
+  state.update_replay_success = success;
+  state.update_replay_version = std::move(version);
+  state.update_status_path = status_path;
+  state.status_text = MakeUpdateReplayText(0.0f, state.update_replay_success, state.update_replay_version);
 }
 
 void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDeps &deps) {
   state.timer += dt;
-  if (state.phase == BootPhase::CountBooks) {
+  if (state.phase == BootPhase::UpdateReplay) {
+    const float replay_ratio = std::clamp(state.timer / kUpdateReplayDurationSec, 0.0f, 1.0f);
+    state.status_text = MakeUpdateReplayText(replay_ratio, state.update_replay_success, state.update_replay_version);
+    if (replay_ratio >= 1.0f) {
+      if (!state.update_status_path.empty()) {
+        std::error_code remove_ec;
+        std::filesystem::remove(state.update_status_path, remove_ec);
+      }
+      state.timer = 0.0f;
+      state.phase = BootPhase::CountBooks;
+      state.status_text = MakeBootScanText(0, 0);
+    }
+  } else if (state.phase == BootPhase::CountBooks) {
     if (!state.count_iterator_active) {
       StartNextBootCountRoot(state, deps.books_roots);
     }
