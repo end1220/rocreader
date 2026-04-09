@@ -13,6 +13,7 @@ struct SystemSettingsState {
   int selected_row = 0;
   int selected_button = 0;
   bool lid_close_screen_off_enabled = true;
+  int auto_sleep_interval_index = 2;
   SystemControlLevels levels;
 };
 
@@ -22,6 +23,7 @@ struct SystemSettingsCallbacks {
   std::function<bool(int, SystemControlLevels &)> adjust_brightness;
   std::function<void(SystemSettingsState &)> refresh_lid_close_state;
   std::function<bool(bool, SystemSettingsState &)> set_lid_close_state;
+  std::function<bool(int, SystemSettingsState &)> adjust_auto_sleep_interval;
   std::function<bool()> clear_cache;
   std::function<bool()> clear_history;
 };
@@ -42,3 +44,6 @@ struct SystemSettingsRenderDeps {
 bool HandleSystemSettingsInput(const InputManager &input, SystemSettingsState &state,
                                const SystemSettingsCallbacks &callbacks);
 void DrawSystemSettingsPreview(const SystemSettingsRenderDeps &deps);
+int ClampAutoSleepIntervalIndex(int value);
+uint32_t AutoSleepIntervalMsFromIndex(int index);
+const char *AutoSleepIntervalLabel(int index);

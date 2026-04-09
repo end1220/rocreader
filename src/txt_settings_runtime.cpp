@@ -26,6 +26,8 @@ constexpr std::array<SDL_Color, kColorOptionCount> kFontColors = {{
 }};
 
 constexpr std::array<int, 5> kFontPointSizes = {{18, 20, 22, 24, 26}};
+
+int ColorLuma(SDL_Color color) { return color.r * 299 + color.g * 587 + color.b * 114; }
 } // namespace
 
 int ClampTxtColorIndex(int value) { return std::clamp(value, 0, kColorOptionCount - 1); }
@@ -157,17 +159,17 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
   };
 
   const int divider_inset = 10;
-  const int content_left = deps.preview_rect.x + 18;
-  const int content_right = deps.preview_rect.x + deps.preview_rect.w - 18;
+  const int preview_padding_x = 16;
   const int row_center0 = deps.first_row_y + deps.row_height / 2;
   const int row_center1 = deps.first_row_y + deps.row_pitch + deps.row_height / 2;
   const int row_center2 = deps.first_row_y + deps.row_pitch * 2 + deps.row_height / 2;
   const int row_center3 = deps.first_row_y + deps.row_pitch * 3 + deps.row_height / 2;
   const int button_w = 28;
   const int button_h = 28;
-  const int color_block = button_w;
+  const int color_block_w = button_w * 2;
+  const int color_block_h = button_h;
   const int color_gap = 8;
-  const int text_to_control_gap = 18;
+  const int label_control_gap = 18;
   const int transcode_button_w = 82;
   const int transcode_button_h = 28;
   const int number_w = 30;
@@ -194,7 +196,13 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
     }
   }
 
-  const int control_x = content_left + max_label_w + text_to_control_gap;
+  const int color_controls_w = kColorOptionCount * color_block_w + (kColorOptionCount - 1) * color_gap;
+  const int font_controls_w = button_w + 10 + number_w + 10 + button_w;
+  const int transcode_controls_w = transcode_button_w;
+  const int max_controls_w = std::max({color_controls_w, font_controls_w, transcode_controls_w});
+  const int content_w = max_label_w + label_control_gap + max_controls_w;
+  const int content_left = deps.preview_rect.x + preview_padding_x;
+  const int control_right = content_left + content_w;
 
   for (size_t i = 0; i < labels.size(); ++i) {
     if (TextCacheEntry *entry = get_text_entry(labels[i], text_color); entry && entry->texture) {
@@ -203,27 +211,38 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
     }
   }
 
-  const int left_btn_x = control_x;
-  const int number_x = left_btn_x + button_w + 10;
-  const int right_btn_x = number_x + number_w + 10;
+  const int color_left_x = control_right - color_controls_w;
+  const int right_btn_x = control_right - button_w;
+  const int number_x = right_btn_x - 10 - number_w;
+  const int left_btn_x = number_x - 10 - button_w;
   const int button_y = row_center2 - button_h / 2;
   const bool left_selected = deps.state.panel_active && deps.state.selected_row == 2 && deps.state.selected_option == 0;
   const bool right_selected = deps.state.panel_active && deps.state.selected_row == 2 && deps.state.selected_option == 1;
 
   for (int i = 0; i < kColorOptionCount; ++i) {
-    const int x = left_btn_x + i * (color_block + color_gap);
-    const int y0 = row_center0 - color_block / 2;
-    const int y1 = row_center1 - color_block / 2;
+    const int x = color_left_x + i * (color_block_w + color_gap);
+    const int y0 = row_center0 - color_block_h / 2;
+    const int y1 = row_center1 - color_block_h / 2;
     const bool selected_bg = deps.state.panel_active && deps.state.selected_row == 0 && deps.state.selected_option == i;
     const bool selected_fg = deps.state.panel_active && deps.state.selected_row == 1 && deps.state.selected_option == i;
+    const SDL_Color bg_color = GetTxtBackgroundColor(i);
+    const SDL_Color fg_color = GetTxtFontColor(i);
+    const SDL_Color bg_contrast = ColorLuma(bg_color) > 140000 ? SDL_Color{20, 24, 32, 255} : SDL_Color{245, 248, 252, 255};
+    const SDL_Color fg_contrast = ColorLuma(fg_color) > 140000 ? SDL_Color{20, 24, 32, 255} : SDL_Color{245, 248, 252, 255};
 
-    deps.draw_rect(x, y0, color_block, color_block, GetTxtBackgroundColor(i), true);
-    deps.draw_rect(x, y0, color_block, color_block,
+    deps.draw_rect(x, y0, color_block_w, color_block_h, bg_color, true);
+    deps.draw_rect(x, y0, color_block_w, color_block_h,
                    selected_bg ? button_border : (deps.state.background_color == i ? text_color : muted_color), false);
+    if (selected_bg && color_block_w > 8 && color_block_h > 8) {
+      deps.draw_rect(x + 2, y0 + 2, color_block_w - 4, color_block_h - 4, bg_contrast, false);
+    }
 
-    deps.draw_rect(x, y1, color_block, color_block, GetTxtFontColor(i), true);
-    deps.draw_rect(x, y1, color_block, color_block,
+    deps.draw_rect(x, y1, color_block_w, color_block_h, fg_color, true);
+    deps.draw_rect(x, y1, color_block_w, color_block_h,
                    selected_fg ? button_border : (deps.state.font_color == i ? text_color : muted_color), false);
+    if (selected_fg && color_block_w > 8 && color_block_h > 8) {
+      deps.draw_rect(x + 2, y1 + 2, color_block_w - 4, color_block_h - 4, fg_contrast, false);
+    }
   }
 
   deps.draw_rect(left_btn_x, button_y, button_w, button_h, left_selected ? button_selected : button_fill, true);
@@ -246,7 +265,7 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
     SDL_RenderCopy(deps.renderer, entry->texture, nullptr, &dst);
   }
 
-  const int transcode_button_x = left_btn_x;
+  const int transcode_button_x = control_right - transcode_button_w;
   const int transcode_button_y = row_center3 - transcode_button_h / 2;
   const bool transcode_selected = deps.state.panel_active && deps.state.selected_row == kTranscodeRow;
   deps.draw_rect(transcode_button_x, transcode_button_y, transcode_button_w, transcode_button_h,

@@ -171,7 +171,6 @@ constexpr int kIdleWaitMs = 100;
 constexpr uint32_t kActiveFrameBudgetMs = 33;
 constexpr uint32_t kAvatarMarqueeFrameBudgetMs = 16;
 constexpr uint32_t kPeriodicTickFrameBudgetMs = 50;
-constexpr uint32_t kAutoSleepIdleMs = 5u * 60u * 1000u;
 constexpr float kCardLerpSpeed = 18.0f;
 constexpr float kCardMoveLinearSpeedX = 860.0f;  // px/s for center move transition
 constexpr float kCardMoveLinearSpeedY = 860.0f;  // px/s for center move transition
@@ -835,6 +834,7 @@ int main(int, char **) {
   SystemControlService system_control_service(use_h700_defaults);
   LidPowerController lid_power_controller(power_script_path);
   SystemSettingsState system_settings_state{};
+  system_settings_state.auto_sleep_interval_index = std::clamp(config.Get().auto_sleep_interval_index, 0, 4);
   TxtSettingsState txt_settings_state{};
   txt_settings_state.background_color = ClampTxtColorIndex(config.Get().txt_background_color);
   txt_settings_state.font_color = ClampTxtColorIndex(config.Get().txt_font_color);
@@ -1590,7 +1590,8 @@ int main(int, char **) {
     auto maybe_trigger_auto_sleep = [&]() {
       if (!use_h700_defaults || !config.Get().lid_close_screen_off || auto_sleep_waiting_for_input) return;
       const uint32_t now = SDL_GetTicks();
-      if (now - last_user_input_tick < kAutoSleepIdleMs) return;
+      const uint32_t idle_ms = AutoSleepIntervalMsFromIndex(system_settings_state.auto_sleep_interval_index);
+      if (now - last_user_input_tick < idle_ms) return;
       if (lid_power_controller.TriggerAutoIfEnabled()) {
         auto_sleep_waiting_for_input = true;
       }
@@ -1838,6 +1839,7 @@ int main(int, char **) {
               },
               [&](SystemSettingsState &settings_state) {
                 settings_state.lid_close_screen_off_enabled = config.Get().lid_close_screen_off;
+                settings_state.auto_sleep_interval_index = std::clamp(config.Get().auto_sleep_interval_index, 0, 4);
               },
               [&](bool enabled, SystemSettingsState &settings_state) {
                 NativeConfig &cfg = config.Mutable();
@@ -1845,6 +1847,18 @@ int main(int, char **) {
                 config.MarkDirty();
                 lid_power_controller.SetEnabled(enabled);
                 settings_state.lid_close_screen_off_enabled = enabled;
+                last_user_input_tick = SDL_GetTicks();
+                auto_sleep_waiting_for_input = false;
+                return true;
+              },
+              [&](int delta, SystemSettingsState &settings_state) {
+                const int next_index =
+                    ClampAutoSleepIntervalIndex(settings_state.auto_sleep_interval_index + delta);
+                if (next_index == settings_state.auto_sleep_interval_index) return false;
+                config.Mutable().auto_sleep_interval_index = next_index;
+                config.MarkDirty();
+                config.Save();
+                settings_state.auto_sleep_interval_index = next_index;
                 last_user_input_tick = SDL_GetTicks();
                 auto_sleep_waiting_for_input = false;
                 return true;
