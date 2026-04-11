@@ -36,6 +36,7 @@ void ConfigStore::Save() {
   out << "animations=" << (cfg_.animations ? 1 : 0) << "\n";
   out << "audio=" << (cfg_.audio ? 1 : 0) << "\n";
   out << "sfx_volume=" << cfg_.sfx_volume << "\n";
+  if (!cfg_.screen_profile.empty()) out << "screen_profile=" << cfg_.screen_profile << "\n";
   out << "system_volume_percent=" << cfg_.system_volume_percent << "\n";
   out << "screen_brightness_level=" << cfg_.screen_brightness_level << "\n";
   out << "lid_close_screen_off=" << (cfg_.lid_close_screen_off ? 1 : 0) << "\n";
@@ -66,6 +67,7 @@ void ConfigStore::Load() {
     else if (k == "animations") cfg_.animations = (v == "1");
     else if (k == "audio") cfg_.audio = (v == "1");
     else if (k == "sfx_volume") cfg_.sfx_volume = std::stoi(v);
+    else if (k == "screen_profile") cfg_.screen_profile = v;
     else if (k == "system_volume_percent") {
       cfg_.system_volume_percent = std::stoi(v);
       saw_system_volume_percent = true;

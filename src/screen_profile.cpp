@@ -1,0 +1,345 @@
+#include "screen_profile.h"
+
+#include <SDL.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace {
+
+constexpr int kDefaultScreenW = 720;
+constexpr int kDefaultScreenH = 480;
+
+std::string ToLowerAscii(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  return text;
+}
+
+bool ParsePositiveInt(const char *text, int &out_value) {
+  if (!text || !*text) return false;
+  try {
+    const int value = std::stoi(text);
+    if (value <= 0) return false;
+    out_value = value;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool ReadEnvScreenSize(int &out_w, int &out_h) {
+  const char *env_w = std::getenv("ROCREADER_SCREEN_W");
+  const char *env_h = std::getenv("ROCREADER_SCREEN_H");
+  int parsed_w = 0;
+  int parsed_h = 0;
+  if (!ParsePositiveInt(env_w, parsed_w) || !ParsePositiveInt(env_h, parsed_h)) return false;
+  out_w = parsed_w;
+  out_h = parsed_h;
+  return true;
+}
+
+bool ReadEnvScreenProfile(int &out_w, int &out_h) {
+  const char *env_profile = std::getenv("ROCREADER_SCREEN_PROFILE");
+  if (!env_profile || !*env_profile) return false;
+  const std::string profile = ToLowerAscii(env_profile);
+  if (profile == "640x480" || profile == "640") {
+    out_w = 640;
+    out_h = 480;
+    return true;
+  }
+  if (profile == "720x480" || profile == "720") {
+    out_w = 720;
+    out_h = 480;
+    return true;
+  }
+  return false;
+}
+
+bool ReadConfigScreenProfile(int &out_w, int &out_h) {
+  std::vector<std::filesystem::path> candidates;
+  if (const char *root = std::getenv("ROCREADER_ROOT"); root && *root) {
+    candidates.emplace_back(std::filesystem::path(root) / "native_config.ini");
+  }
+  candidates.emplace_back(std::filesystem::current_path() / "native_config.ini");
+  candidates.emplace_back(std::filesystem::current_path().parent_path() / "native_config.ini");
+
+  for (const auto &path : candidates) {
+    std::ifstream in(path);
+    if (!in) continue;
+    std::string line;
+    while (std::getline(in, line)) {
+      const size_t eq = line.find('=');
+      if (eq == std::string::npos) continue;
+      const std::string key = ToLowerAscii(line.substr(0, eq));
+      if (key != "screen_profile") continue;
+      const std::string value = ToLowerAscii(line.substr(eq + 1));
+      if (value == "640x480" || value == "640") {
+        out_w = 640;
+        out_h = 480;
+        return true;
+      }
+      if (value == "720x480" || value == "720") {
+        out_w = 720;
+        out_h = 480;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool ApplyProfileFromModelName(const std::string &model_name, int &out_w, int &out_h) {
+  if (model_name.empty()) return false;
+  const std::string lower = ToLowerAscii(model_name);
+  if (lower.find("34xx") != std::string::npos) {
+    out_w = 720;
+    out_h = 480;
+    return true;
+  }
+  if (lower.find("35xx") != std::string::npos || lower.find("40xx") != std::string::npos) {
+    out_w = 640;
+    out_h = 480;
+    return true;
+  }
+  return false;
+}
+
+std::string ExtractModelToken(const std::string &text) {
+  const std::string lower = ToLowerAscii(text);
+  const std::vector<std::string> needles = {
+      "34xx", "35xx", "40xx", "rg34xx", "rg35xx", "rg40xx",
+  };
+  for (const std::string &needle : needles) {
+    const size_t pos = lower.find(needle);
+    if (pos == std::string::npos) continue;
+    size_t start = pos;
+    while (start > 0) {
+      const unsigned char ch = static_cast<unsigned char>(lower[start - 1]);
+      if (!std::isalnum(ch) && ch != '_' && ch != '-') break;
+      --start;
+    }
+    size_t end = pos + needle.size();
+    while (end < lower.size()) {
+      const unsigned char ch = static_cast<unsigned char>(lower[end]);
+      if (!std::isalnum(ch) && ch != '_' && ch != '-') break;
+      ++end;
+    }
+    return lower.substr(start, end - start);
+  }
+  return {};
+}
+
+bool ReadDeviceModelScreenProfile(int &out_w, int &out_h) {
+  const std::string token = DetectDeviceModelToken();
+  if (!token.empty() && ApplyProfileFromModelName(token, out_w, out_h)) return true;
+  return false;
+}
+
+bool ParseFramebufferSize(const std::string &text, int &out_w, int &out_h) {
+  const size_t comma = text.find(',');
+  if (comma == std::string::npos) return false;
+  const std::string w_text = text.substr(0, comma);
+  const std::string h_text = text.substr(comma + 1);
+  try {
+    const int parsed_w = std::stoi(w_text);
+    const int parsed_h = std::stoi(h_text);
+    if (parsed_w <= 0 || parsed_h <= 0) return false;
+    out_w = parsed_w;
+    out_h = parsed_h;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool ParseScreenSizeToken(const std::string &text, int &out_w, int &out_h) {
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (!std::isdigit(static_cast<unsigned char>(text[i]))) continue;
+    size_t width_end = i;
+    while (width_end < text.size() && std::isdigit(static_cast<unsigned char>(text[width_end]))) {
+      ++width_end;
+    }
+    if (width_end >= text.size() || (text[width_end] != 'x' && text[width_end] != 'X')) {
+      i = width_end;
+      continue;
+    }
+    const size_t height_start = width_end + 1;
+    size_t height_end = height_start;
+    while (height_end < text.size() && std::isdigit(static_cast<unsigned char>(text[height_end]))) {
+      ++height_end;
+    }
+    if (height_end == height_start) {
+      i = width_end;
+      continue;
+    }
+    try {
+      const int parsed_w = std::stoi(text.substr(i, width_end - i));
+      const int parsed_h = std::stoi(text.substr(height_start, height_end - height_start));
+      if (parsed_w > 0 && parsed_h > 0) {
+        out_w = parsed_w;
+        out_h = parsed_h;
+        return true;
+      }
+    } catch (...) {
+    }
+    i = height_end;
+  }
+  return false;
+}
+
+bool ReadFramebufferModeSize(int &out_w, int &out_h) {
+  const std::vector<std::string> candidates = {
+      "/sys/class/graphics/fb0/modes",
+      "/sys/class/graphics/fb0/mode",
+      "/sys/class/graphics/fb1/modes",
+      "/sys/class/graphics/fb1/mode",
+  };
+  for (const std::string &path : candidates) {
+    std::ifstream in(path);
+    if (!in) continue;
+    std::string line;
+    while (std::getline(in, line)) {
+      if (line.empty()) continue;
+      if (ParseScreenSizeToken(line, out_w, out_h)) return true;
+    }
+  }
+  return false;
+}
+
+bool ReadFramebufferSize(int &out_w, int &out_h) {
+  const std::vector<std::string> candidates = {
+      "/sys/class/graphics/fb0/virtual_size",
+      "/sys/class/graphics/fb1/virtual_size",
+  };
+  for (const std::string &path : candidates) {
+    std::ifstream in(path);
+    if (!in) continue;
+    std::string line;
+    if (!std::getline(in, line) || line.empty()) continue;
+    if (ParseFramebufferSize(line, out_w, out_h)) return true;
+  }
+  return false;
+}
+
+bool ReadSdlDisplaySize(int &out_w, int &out_h) {
+  SDL_DisplayMode mode{};
+  if (SDL_GetCurrentDisplayMode(0, &mode) == 0 && mode.w > 0 && mode.h > 0) {
+    out_w = mode.w;
+    out_h = mode.h;
+    return true;
+  }
+  if (SDL_GetDesktopDisplayMode(0, &mode) == 0 && mode.w > 0 && mode.h > 0) {
+    out_w = mode.w;
+    out_h = mode.h;
+    return true;
+  }
+  return false;
+}
+
+bool TryApplyProfileFromDetectedSize(ScreenProfile &profile) {
+  if (profile.detected_w == 640 || profile.detected_h == 640) {
+    profile.screen_w = 640;
+    profile.screen_h = 480;
+    profile.profile_name = "640x480";
+    return true;
+  }
+  if (profile.detected_w == 720 || profile.detected_h == 720) {
+    profile.screen_w = 720;
+    profile.screen_h = 480;
+    profile.profile_name = "720x480";
+    return true;
+  }
+  return false;
+}
+
+void ApplyDefaultProfile(ScreenProfile &profile) {
+  profile.screen_w = kDefaultScreenW;
+  profile.screen_h = kDefaultScreenH;
+  profile.profile_name = "720x480";
+}
+
+bool TryCommitDetectedProfile(ScreenProfile &profile, int detected_w, int detected_h, const char *source) {
+  profile.detected_w = detected_w;
+  profile.detected_h = detected_h;
+  profile.detection_source = source ? source : "unknown";
+  return TryApplyProfileFromDetectedSize(profile);
+}
+
+}  // namespace
+
+std::string DetectDeviceModelToken() {
+  if (const char *env_model = std::getenv("ROCREADER_DEVICE_MODEL"); env_model && *env_model) {
+    const std::string token = ExtractModelToken(env_model);
+    if (!token.empty()) return token;
+    const std::string lower = ToLowerAscii(env_model);
+    if (!lower.empty()) return lower;
+  }
+
+  const std::vector<std::filesystem::path> candidates = {
+      "/sys/firmware/devicetree/base/model",
+      "/proc/device-tree/model",
+      "/tmp/device_info.txt",
+      "/tmp/sysinfo/model",
+      "/proc/cmdline",
+      "/etc/hostname",
+      "/sys/devices/virtual/dmi/id/product_name",
+      "/sys/devices/virtual/dmi/id/board_name",
+  };
+  for (const auto &path : candidates) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) continue;
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    text.erase(std::remove(text.begin(), text.end(), '\0'), text.end());
+    const std::string token = ExtractModelToken(text);
+    if (!token.empty()) return token;
+  }
+  return {};
+}
+
+ScreenProfile DetectScreenProfile() {
+  ScreenProfile profile;
+
+  int detected_w = 0;
+  int detected_h = 0;
+  if (ReadEnvScreenProfile(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "env-profile")) return profile;
+  }
+
+  if (ReadEnvScreenSize(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "env")) return profile;
+  }
+
+  if (ReadConfigScreenProfile(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "config")) return profile;
+  }
+
+  if (ReadDeviceModelScreenProfile(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "device-model")) return profile;
+  }
+
+  if (ReadFramebufferModeSize(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "framebuffer-mode")) return profile;
+  }
+
+  if (ReadFramebufferSize(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "framebuffer")) return profile;
+  }
+
+  if (ReadSdlDisplaySize(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "sdl")) return profile;
+  }
+
+  profile.detected_w = kDefaultScreenW;
+  profile.detected_h = kDefaultScreenH;
+  profile.detection_source = "default";
+  ApplyDefaultProfile(profile);
+  return profile;
+}

@@ -61,7 +61,38 @@ print(os.path.join(downloads, f"ROC全能漫画阅读器ver{major}.{minor}.zip")
 PY
 }
 
-ZIPFILE="${DOWNLOAD_ZIP_FILE:-$(next_download_zip)}"
+next_download_zip_utf8() {
+  python3 - "$DOWNLOADS_ROOT" <<'PY'
+import os
+import re
+import sys
+
+downloads = sys.argv[1]
+prefix = "ROC全能漫画阅读器ver"
+pattern = re.compile(r"^" + re.escape(prefix) + r"(\d+)\.(\d+)\.zip$")
+best = None
+
+if os.path.isdir(downloads):
+    for name in os.listdir(downloads):
+        match = pattern.match(name)
+        if not match:
+            continue
+        major = int(match.group(1))
+        minor = int(match.group(2))
+        value = (major, minor)
+        if best is None or value > best:
+            best = value
+
+if best is None:
+    major, minor = 0, 1
+else:
+    major, minor = best[0], best[1] + 1
+
+print(os.path.join(downloads, f"{prefix}{major}.{minor}.zip"))
+PY
+}
+
+ZIPFILE="${DOWNLOAD_ZIP_FILE:-$(next_download_zip_utf8)}"
 
 if [ ! -d "$SYSROOT" ]; then
   echo "[low_glibc] ERROR: SYSROOT not found: $SYSROOT"
@@ -554,6 +585,8 @@ find_so_in_libdir() {
   cp "$LAUNCHER" "$ZIP_STAGE_APPS/ROCreader.sh"
   if [ -f "$SELF_DIR/ui/ROCreader.png" ]; then
     cp "$SELF_DIR/ui/ROCreader.png" "$ZIP_STAGE_IMGS/ROCreader.png"
+  elif [ -f "$SELF_DIR/ui/common/ROCreader.png" ]; then
+    cp "$SELF_DIR/ui/common/ROCreader.png" "$ZIP_STAGE_IMGS/ROCreader.png"
   fi
   rm -f "$ZIPFILE"
   ZIP_SRC="$ZIP_STAGE_ROOT" ZIP_DST="$ZIPFILE" python3 - <<'PY'

@@ -24,7 +24,9 @@ constexpr const char *kUserAgent = "ROCreader-Updater";
 constexpr const char *kDownloadTempFilename = "ROCreader_update_download.tmp";
 constexpr const char *kInstalledVersionFilename = "version.txt";
 constexpr int kDownloadConnectTimeoutSec = 15;
-constexpr int kDownloadMaxTimeSec = 900;
+constexpr int kDownloadMaxTimeSec = 300;
+constexpr int kDownloadLowSpeedBytesPerSec = 1024;
+constexpr int kDownloadLowSpeedWindowSec = 20;
 
 std::filesystem::path UpdateLogPath() {
   std::error_code ec;
@@ -160,6 +162,27 @@ std::string FormatDownloadSpeed(double bytes_per_sec) {
   return oss.str();
 }
 
+std::vector<std::string> BuildDownloadUrlCandidates(const std::string &url) {
+  std::vector<std::string> urls;
+  if (!url.empty()) urls.push_back(url);
+
+  const std::string raw_prefix = "https://raw.githubusercontent.com/";
+  if (url.rfind(raw_prefix, 0) == 0) {
+    const std::string rest = url.substr(raw_prefix.size());
+    const size_t first_slash = rest.find('/');
+    const size_t second_slash = first_slash == std::string::npos ? std::string::npos : rest.find('/', first_slash + 1);
+    const size_t third_slash = second_slash == std::string::npos ? std::string::npos : rest.find('/', second_slash + 1);
+    if (third_slash != std::string::npos) {
+      const std::string owner = rest.substr(0, first_slash);
+      const std::string repo = rest.substr(first_slash + 1, second_slash - first_slash - 1);
+      const std::string branch = rest.substr(second_slash + 1, third_slash - second_slash - 1);
+      const std::string path = rest.substr(third_slash + 1);
+      urls.push_back("https://github.com/" + owner + "/" + repo + "/raw/refs/heads/" + branch + "/" + path);
+    }
+  }
+  return urls;
+}
+
 std::string EscapeForPosix(const std::string &value) {
   std::string escaped = "'";
   for (char ch : value) {
@@ -244,26 +267,41 @@ bool DownloadFile(const std::string &url, const std::filesystem::path &output_pa
   AppendUpdateLog(std::string("PowerShell download result: ") + (ok ? "success" : "failed"));
   return ok;
 #else
-  const std::string quoted_url = EscapeForPosix(url);
   const std::string quoted_output = EscapeForPosix(output_path.string());
   const std::string header = EscapeForPosix(std::string("User-Agent: ") + kUserAgent);
+  for (const std::string &candidate_url : BuildDownloadUrlCandidates(url)) {
+    const std::string quoted_url = EscapeForPosix(candidate_url);
+    AppendUpdateLog("Trying download URL: " + candidate_url);
+    const std::vector<std::string> commands = {
+        "curl -L --fail --silent --show-error --http1.1 --connect-timeout "
+            + std::to_string(kDownloadConnectTimeoutSec) + " --max-time "
+            + std::to_string(kDownloadMaxTimeSec) + " --speed-limit "
+            + std::to_string(kDownloadLowSpeedBytesPerSec) + " --speed-time "
+            + std::to_string(kDownloadLowSpeedWindowSec) + " -H " + header + " "
+            + quoted_url + " -o " + quoted_output,
+        "curl -k -L --fail --silent --show-error --http1.1 --connect-timeout "
+            + std::to_string(kDownloadConnectTimeoutSec) + " --max-time "
+            + std::to_string(kDownloadMaxTimeSec) + " --speed-limit "
+            + std::to_string(kDownloadLowSpeedBytesPerSec) + " --speed-time "
+            + std::to_string(kDownloadLowSpeedWindowSec) + " -H " + header + " "
+            + quoted_url + " -o " + quoted_output,
+        "wget -q --timeout=" + std::to_string(kDownloadConnectTimeoutSec)
+            + " --tries=1 --user-agent=" + EscapeForPosix(kUserAgent)
+            + " -O " + quoted_output + " " + quoted_url,
+        "wget -q --no-check-certificate --timeout=" + std::to_string(kDownloadConnectTimeoutSec)
+            + " --tries=1 --user-agent=" + EscapeForPosix(kUserAgent)
+            + " -O " + quoted_output + " " + quoted_url,
+        "busybox wget -q -T " + std::to_string(kDownloadConnectTimeoutSec)
+            + " -O " + quoted_output + " " + quoted_url,
+    };
 
-  const std::vector<std::string> commands = {
-      "curl -L --fail --silent --show-error --http1.1 --connect-timeout "
-          + std::to_string(kDownloadConnectTimeoutSec) + " --max-time "
-          + std::to_string(kDownloadMaxTimeSec) + " -H " + header + " "
-          + quoted_url + " -o " + quoted_output,
-      "wget -q --timeout=" + std::to_string(kDownloadConnectTimeoutSec)
-          + " --tries=1 --user-agent=" + EscapeForPosix(kUserAgent)
-          + " -O " + quoted_output + " " + quoted_url,
-      "busybox wget -q -T " + std::to_string(kDownloadConnectTimeoutSec)
-          + " -O " + quoted_output + " " + quoted_url,
-  };
-
-  for (const std::string &command : commands) {
-    const int rc = RunCommand(command);
-    AppendUpdateLog("Download command exit code: " + std::to_string(rc));
-    if (rc == 0) return true;
+    for (const std::string &command : commands) {
+      std::error_code remove_ec;
+      std::filesystem::remove(output_path, remove_ec);
+      const int rc = RunCommand(command);
+      AppendUpdateLog("Download command exit code: " + std::to_string(rc));
+      if (rc == 0) return true;
+    }
   }
   return false;
 #endif

@@ -23,7 +23,7 @@ struct TxtReaderSessionDeps {
   std::function<void(const std::string &, const std::string &, const TxtReaderState &)> save_resume_cache_to_disk;
   std::function<void()> prune_layout_cache;
   std::function<bool(const std::string &, std::string &)> decode_text_bytes_to_utf8;
-  std::function<bool(TxtReaderState &, const std::string &)> append_wrapped_text_line;
+  std::function<bool(TxtReaderState &, const std::string &, size_t)> append_wrapped_text_line;
   std::function<void()> invalidate_all_render_cache;
   std::function<void()> clamp_text_scroll;
   int txt_line_spacing = 0;

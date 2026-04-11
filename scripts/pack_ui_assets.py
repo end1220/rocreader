@@ -30,10 +30,10 @@ def main() -> int:
         return 1
 
     files = []
-    for path in sorted(ui_dir.iterdir(), key=lambda p: p.name.lower()):
+    for path in sorted(ui_dir.rglob("*"), key=lambda p: p.relative_to(ui_dir).as_posix().lower()):
         if not path.is_file():
             continue
-        rel_name = path.name
+        rel_name = path.relative_to(ui_dir).as_posix()
         payload = path.read_bytes()
         files.append((rel_name, xor_stream(payload, rel_name), len(payload)))
 

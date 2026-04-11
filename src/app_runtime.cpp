@@ -104,12 +104,14 @@ MenuToggleAction HandleMenuToggleInput(AppUiState &state, const InputManager &in
                                        bool menu_closing, float debounce_sec) {
   const bool start_just_pressed = input.IsJustPressed(Button::Start);
   const bool select_just_pressed = input.IsJustPressed(Button::Select);
-  const bool menu_toggle_pressed = input.IsPressed(Button::Start) || input.IsPressed(Button::Select);
+  const bool menu_just_pressed = input.IsJustPressed(Button::Menu);
+  const bool menu_toggle_pressed =
+      input.IsPressed(Button::Start) || input.IsPressed(Button::Select) || input.IsPressed(Button::Menu);
   if (!menu_toggle_pressed && state.menu_toggle_cooldown <= 0.0f) {
     state.menu_toggle_armed = true;
   }
 
-  const bool menu_toggle_request = start_just_pressed || select_just_pressed;
+  const bool menu_toggle_request = start_just_pressed || select_just_pressed || menu_just_pressed;
   if (!menu_toggle_request || !state.menu_toggle_armed || state.menu_toggle_cooldown > 0.0f) {
     return MenuToggleAction::None;
   }

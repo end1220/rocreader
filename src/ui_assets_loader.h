@@ -18,6 +18,7 @@ struct UiAssetsLoadResult {
 struct UiAssetsLoaderDeps {
   SDL_Renderer *renderer = nullptr;
   std::filesystem::path exe_path;
+  std::string ui_profile_name;
   std::function<SDL_Texture *(SDL_Renderer *, const std::string &)> load_texture_from_file;
   std::function<SDL_Surface *(const void *, size_t)> load_surface_from_memory;
   std::function<SDL_Texture *(SDL_Renderer *, SDL_Surface *)> create_texture_from_surface;

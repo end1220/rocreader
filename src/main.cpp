@@ -21,6 +21,7 @@
 #include <functional>
 #include <iostream>
 #include <codecvt>
+#include <limits>
 #include <locale>
 #if !defined(_WIN32) && __has_include(<iconv.h>)
 #include <errno.h>
@@ -54,6 +55,7 @@
 #include "reader_core.h"
 #include "reader_session_ops.h"
 #include "reader_session_state.h"
+#include "screen_profile.h"
 #include "system_controls.h"
 #include "system_settings_runtime.h"
 #include "shelf_runtime.h"
@@ -121,7 +123,7 @@ constexpr LayoutMetrics layout_720x480{
     430, 50,
     140, 210,
     180, 250,
-    33, 43,
+    33, 38,
     33, 100,
     36, 2, 4, 24,
     240, 0, 35,
@@ -138,12 +140,12 @@ constexpr LayoutMetrics layout_640x480{
     30, 50,
     80, 350,
     430, 50,
-    140, 210,
-    180, 250,
-    33, 43,
-    33, 100,
+    130, 195,
+    167, 232,
+    25, 30,
+    23, 100,
     36, 2, 4, 24,
-    220, 0, 35,
+    160, 0, 35,
     28, 20,
     14, 46,
     587, 46,
@@ -151,8 +153,6 @@ constexpr LayoutMetrics layout_640x480{
     18, 12, 34, 34,
 };
 
-constexpr int kDefaultScreenW = layout_720x480.screen_w;
-constexpr int kDefaultScreenH = layout_720x480.screen_h;
 constexpr int kGridCols = 4;
 constexpr int kGridRows = 2;
 constexpr int kItemsPerPage = kGridCols * kGridRows;
@@ -202,7 +202,7 @@ constexpr uint32_t kTransientMessageDurationMs = 1800;
 constexpr uint32_t kReaderFastFlipThresholdMs = 200;
 constexpr uint32_t kReaderPageFlipDebounceMs = 150;
 constexpr int kTxtLineSpacing = 8;
-constexpr int kTxtLayoutCacheVersion = 2;
+constexpr int kTxtLayoutCacheVersion = 3;
 constexpr size_t kTxtMaxBytes = 64 * 1024 * 1024;
 constexpr size_t kTxtMaxWrappedLines = 250000;
 constexpr size_t kTxtLayoutCacheMaxEntries = 4;
@@ -670,6 +670,7 @@ int main(int, char **) {
   const char *env_fullscreen = std::getenv("ROCREADER_FULLSCREEN");
   const bool force_windowed = env_windowed && std::string(env_windowed) == "1";
   const bool force_fullscreen = env_fullscreen && std::string(env_fullscreen) == "1";
+  const ScreenProfile screen_profile = DetectScreenProfile();
 
   uint32_t win_flags = SDL_WINDOW_SHOWN;
 #if defined(__arm__) || defined(__aarch64__)
@@ -680,7 +681,11 @@ int main(int, char **) {
   if ((default_fullscreen && !force_windowed) || force_fullscreen) {
     win_flags |= SDL_WINDOW_FULLSCREEN;
   }
-  g_layout = &SelectLayoutProfile(kDefaultScreenW, kDefaultScreenH);
+  g_layout = &SelectLayoutProfile(screen_profile.screen_w, screen_profile.screen_h);
+  std::cout << "[native_h700] screen detect: source=" << screen_profile.detection_source
+            << " detected=" << screen_profile.detected_w << "x" << screen_profile.detected_h
+            << " profile=" << screen_profile.profile_name
+            << " layout=" << Layout().screen_w << "x" << Layout().screen_h << "\n";
 
   SDL_Window *window =
       SDL_CreateWindow("ROCreader Native H700",
@@ -777,6 +782,7 @@ int main(int, char **) {
   UiAssetsLoaderDeps ui_assets_loader_deps{
       renderer,
       exe_path,
+      screen_profile.profile_name,
       LoadTextureFromFile,
       LoadSurfaceFromMemory,
       CreateTextureFromSurface,
@@ -793,8 +799,15 @@ int main(int, char **) {
 
   std::vector<ContributorAvatarEntry> contributor_avatar_entries;
   auto resolve_ui_root = [&]() -> std::filesystem::path {
-    if (!ui_assets_load_result.ui_root_hit.empty()) return ui_assets_load_result.ui_root_hit;
+    if (!ui_assets_load_result.ui_root_hit.empty()) {
+      const std::filesystem::path common_root = ui_assets_load_result.ui_root_hit / "common";
+      if (std::filesystem::exists(common_root)) return common_root.lexically_normal();
+      return ui_assets_load_result.ui_root_hit;
+    }
     const std::vector<std::filesystem::path> candidates = {
+        exe_path / "ui" / "common",
+        exe_path / ".." / "ui" / "common",
+        std::filesystem::current_path() / "ui" / "common",
         exe_path / "ui",
         exe_path / ".." / "ui",
         std::filesystem::current_path() / "ui",
@@ -887,8 +900,13 @@ int main(int, char **) {
   const std::filesystem::path keymap_path = resolve_runtime_file("native_keymap.ini");
 #if defined(__arm__) || defined(__aarch64__)
   const bool use_h700_defaults = true;
+  const std::string device_model_token = DetectDeviceModelToken();
+  const bool use_h700_34xx_keymap =
+      device_model_token.find("34xx") != std::string::npos || screen_profile.screen_w >= 720;
 #else
   const bool use_h700_defaults = false;
+  const std::string device_model_token;
+  const bool use_h700_34xx_keymap = false;
 #endif
   const std::filesystem::path config_path = resolve_runtime_file("native_config.ini");
   const std::filesystem::path progress_path = resolve_runtime_file("native_progress.tsv");
@@ -901,8 +919,15 @@ int main(int, char **) {
   std::cout << "[native_h700] keymap path: " << keymap_path.lexically_normal().string() << "\n";
   std::cout << "[native_h700] config path: " << config_path.lexically_normal().string() << "\n";
   std::cout << "[native_h700] power script path: " << power_script_path.lexically_normal().string() << "\n";
+  std::cout << "[native_h700] device model token: "
+            << (device_model_token.empty() ? std::string("unknown") : device_model_token) << "\n";
+  std::cout << "[native_h700] h700 joy profile: "
+            << (use_h700_defaults ? (use_h700_34xx_keymap ? "34xxsp" : "other-h700") : "desktop-default")
+            << "\n";
 
-  InputManager input(keymap_path.string(), use_h700_defaults);
+  InputManager input(keymap_path.string(), use_h700_defaults, use_h700_34xx_keymap);
+  std::cout << "[native_h700] joy map: " << input.DescribeJoyMap() << "\n";
+  std::cout << "[native_h700] pad map: " << input.DescribePadMap() << "\n";
   ConfigStore config(config_path.string());
   if (!config.Get().audio) {
     config.Mutable().audio = true;
@@ -1447,12 +1472,35 @@ int main(int, char **) {
     txt_reader.scroll_px = ClampInt(txt_reader.scroll_px, 0, max_scroll);
     if (!txt_reader.loading) {
       reader.scroll_y = txt_reader.scroll_px;
+      if (!txt_reader.line_source_offsets.empty()) {
+        const size_t top_line = std::min(
+            txt_reader.line_source_offsets.size() - 1,
+            static_cast<size_t>(std::max(0, txt_reader.scroll_px / std::max(1, txt_reader.line_h))));
+        reader.scroll_x = static_cast<int>(std::min<size_t>(
+            txt_reader.line_source_offsets[top_line], static_cast<size_t>(std::numeric_limits<int>::max())));
+      } else {
+        reader.scroll_x = 0;
+      }
     }
   };
 
   auto get_text_viewport_bounds = [&]() -> SDL_Rect {
-    return GetTxtViewportBounds(renderer, Layout().screen_w, Layout().screen_h, Layout().txt_margin_x,
-                                Layout().txt_margin_y);
+    open_ui_font();
+    const int font_pt = TxtFontPointSizeForLevel(config.Get().txt_font_size_level);
+    int font_h = font_pt + 4;
+#ifdef HAVE_SDL2_TTF
+    if (ui_text_cache.reader_font) font_h = TTF_FontHeight(ui_text_cache.reader_font);
+#endif
+    return GetTxtViewportBounds(
+        renderer,
+        TxtViewportRequest{
+            Layout().screen_w,
+            Layout().screen_h,
+            Layout().txt_margin_x,
+            Layout().txt_margin_y,
+            font_pt,
+            font_h + kTxtLineSpacing,
+        });
   };
 
 #ifdef HAVE_SDL2_TTF
@@ -1461,13 +1509,16 @@ int main(int, char **) {
 
 #endif
 
-  auto append_wrapped_text_line = [&](TxtReaderState &state, const std::string &line) -> bool {
+  auto append_wrapped_text_line = [&](TxtReaderState &state, const std::string &line,
+                                      size_t source_line_offset) -> bool {
 #ifndef HAVE_SDL2_TTF
     (void)state;
     (void)line;
+    (void)source_line_offset;
     return false;
 #else
-    return AppendWrappedTextLine(state, line, ui_text_cache.reader_font, txt_text_service.max_wrapped_lines);
+    return AppendWrappedTextLine(state, line, ui_text_cache.reader_font,
+                                 source_line_offset, txt_text_service.max_wrapped_lines);
 #endif
   };
 
@@ -2016,6 +2067,20 @@ int main(int, char **) {
                 const int next_level = ClampTxtFontSizeLevel(settings_state.font_size_level + delta);
                 if (next_level == settings_state.font_size_level) return false;
                 apply_txt_font_size_level(next_level);
+                if (reader_mode == ReaderMode::Txt && txt_reader.open && !current_book.empty()) {
+                  if (!txt_reader.line_source_offsets.empty()) {
+                    const size_t top_line = std::min(
+                        txt_reader.line_source_offsets.size() - 1,
+                        static_cast<size_t>(std::max(0, txt_reader.scroll_px / std::max(1, txt_reader.line_h))));
+                    reader.scroll_x = static_cast<int>(std::min<size_t>(
+                        txt_reader.line_source_offsets[top_line], static_cast<size_t>(std::numeric_limits<int>::max())));
+                  } else {
+                    reader.scroll_x = 0;
+                  }
+                  reader.page = (txt_reader.line_h > 0) ? (txt_reader.scroll_px / txt_reader.line_h) : 0;
+                  reader.scroll_y = txt_reader.scroll_px;
+                  open_text_book(current_book);
+                }
                 settings_state.font_size_level = next_level;
                 settings_state.selected_option = delta < 0 ? 0 : 1;
                 return true;
@@ -2310,13 +2375,14 @@ int main(int, char **) {
             fill_color = status.charging ? SDL_Color{76, 170, 98, 255} : SDL_Color{58, 64, 76, 255};
           }
 
-          const int center_y = Layout().top_bar_y + Layout().top_bar_h / 2;
-          const int battery_shift_y = 3;
-          const int battery_icon_x = 552;
-          const int battery_text_x = 587;
-          const int clock_shift_x = 40;
-          const int clock_shift_y = 3;
-          int clock_right = Layout().screen_w - 16 - clock_shift_x;
+            const int center_y = Layout().top_bar_y + Layout().top_bar_h / 2;
+            const int battery_shift_y = 3;
+            const int battery_shift_x = (Layout().screen_w <= 640) ? -80 : 0;
+            const int battery_icon_x = 552 + battery_shift_x;
+            const int battery_text_x = 587 + battery_shift_x;
+            const int clock_shift_x = 40;
+            const int clock_shift_y = 3;
+            int clock_right = Layout().screen_w - 16 - clock_shift_x;
 
           if (!status.clock_text.empty()) {
             TextCacheEntry *clock_tex = get_text_texture(status.clock_text, text_color);
@@ -2644,6 +2710,15 @@ int main(int, char **) {
       reader.zoom = active_epub.zoom;
       reader.rotation = active_epub.rotation;
     } else if (reader_mode == ReaderMode::Txt && txt_reader.open) {
+      if (!txt_reader.line_source_offsets.empty()) {
+        const size_t top_line = std::min(
+            txt_reader.line_source_offsets.size() - 1,
+            static_cast<size_t>(std::max(0, txt_reader.scroll_px / std::max(1, txt_reader.line_h))));
+        reader.scroll_x = static_cast<int>(std::min<size_t>(
+            txt_reader.line_source_offsets[top_line], static_cast<size_t>(std::numeric_limits<int>::max())));
+      } else {
+        reader.scroll_x = 0;
+      }
       reader.page = (txt_reader.line_h > 0) ? (txt_reader.scroll_px / txt_reader.line_h) : 0;
       reader.scroll_y = txt_reader.scroll_px;
       txt_reader.resume_cache_dirty = true;

@@ -10,6 +10,7 @@
 struct TxtReaderState {
   bool open = false;
   std::vector<std::string> lines;
+  std::vector<size_t> line_source_offsets;
   int scroll_px = 0;
   int target_scroll_px = 0;
   int viewport_x = 0;
@@ -20,8 +21,10 @@ struct TxtReaderState {
   int content_h = 0;
   std::string pending_raw;
   std::string pending_line;
+  size_t pending_line_source_offset = 0;
   std::string cache_key;
   size_t parse_pos = 0;
+  size_t restore_source_offset = 0;
   bool loading = false;
   bool truncated = false;
   bool limit_hit = false;
@@ -32,6 +35,7 @@ struct TxtReaderState {
 
 struct TxtLayoutCacheEntry {
   std::vector<std::string> lines;
+  std::vector<size_t> line_source_offsets;
   int viewport_w = 0;
   int viewport_h = 0;
   int line_h = 0;
@@ -43,8 +47,10 @@ struct TxtLayoutCacheEntry {
 
 struct TxtResumeCacheEntry {
   std::vector<std::string> lines;
+  std::vector<size_t> line_source_offsets;
   std::string pending_raw;
   std::string pending_line;
+  size_t pending_line_source_offset = 0;
   int viewport_w = 0;
   int viewport_h = 0;
   int line_h = 0;
@@ -52,6 +58,7 @@ struct TxtResumeCacheEntry {
   int scroll_px = 0;
   int target_scroll_px = 0;
   size_t parse_pos = 0;
+  size_t restore_source_offset = 0;
   bool loading = false;
   bool truncated = false;
   bool limit_hit = false;

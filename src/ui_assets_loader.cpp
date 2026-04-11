@@ -10,6 +10,15 @@
 #include <vector>
 
 namespace {
+std::vector<std::string> BuildUiAssetLookupNames(const std::string &profile_name, const std::string &name) {
+  std::vector<std::string> out;
+  if (!profile_name.empty()) out.push_back(profile_name + "/" + name);
+  out.push_back("common/" + name);
+  if (profile_name != "720x480") out.push_back("720x480/" + name);
+  out.push_back(name);
+  return out;
+}
+
 void XorUiPayload(std::vector<unsigned char> &data, const std::string &name) {
   static const std::string key = "ROCreader::native_h700::ui_pack";
   if (name.empty()) return;
@@ -24,12 +33,14 @@ void LoadUiAsset(SDL_Texture *&slot, const std::string &name,
                  std::unordered_map<std::string, std::vector<unsigned char>> &packed_ui_assets,
                  const std::vector<std::filesystem::path> &ui_roots, UiAssetsLoaderDeps &deps,
                  UiAssetsLoadResult &result) {
+  const std::vector<std::string> lookup_names = BuildUiAssetLookupNames(deps.ui_profile_name, name);
   if (slot) {
     SDL_DestroyTexture(slot);
     slot = nullptr;
   }
-  auto packed_it = packed_ui_assets.find(name);
-  if (packed_it != packed_ui_assets.end()) {
+  for (const std::string &lookup_name : lookup_names) {
+    auto packed_it = packed_ui_assets.find(lookup_name);
+    if (packed_it == packed_ui_assets.end()) continue;
     SDL_Surface *surface = deps.load_surface_from_memory(packed_it->second.data(), packed_it->second.size());
     if (surface) {
       slot = deps.create_texture_from_surface(deps.renderer, surface);
@@ -41,17 +52,23 @@ void LoadUiAsset(SDL_Texture *&slot, const std::string &name,
       SDL_QueryTexture(slot, nullptr, nullptr, &width, &height);
       deps.remember_texture_size(slot, width, height);
     } else {
-      std::cerr << "[native_h700] ui asset load failed from pack: " << name << " err=" << SDL_GetError() << "\n";
+      std::cerr << "[native_h700] ui asset load failed from pack: " << lookup_name << " err=" << SDL_GetError()
+                << "\n";
     }
     return;
   }
 
   std::filesystem::path found_path;
   for (const auto &root : ui_roots) {
-    const auto candidate = root / name;
-    if (std::filesystem::exists(candidate)) {
-      found_path = candidate;
-      if (result.ui_root_hit.empty()) result.ui_root_hit = root;
+    for (const std::string &lookup_name : lookup_names) {
+      const auto candidate = root / lookup_name;
+      if (std::filesystem::exists(candidate)) {
+        found_path = candidate;
+        if (result.ui_root_hit.empty()) result.ui_root_hit = root;
+        break;
+      }
+    }
+    if (!found_path.empty()) {
       break;
     }
   }

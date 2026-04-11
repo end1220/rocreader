@@ -175,8 +175,9 @@ std::vector<PackedUiAsset> LoadPackedAvatarAssets(const std::filesystem::path &e
         break;
       }
 
-      const bool is_avatar = name.rfind("avatar_", 0) == 0;
-      const bool is_rank_frame = ParseRankFrameOrderName(name) >= 0;
+      const std::string leaf_name = std::filesystem::path(name).filename().string();
+      const bool is_avatar = leaf_name.rfind("avatar_", 0) == 0;
+      const bool is_rank_frame = ParseRankFrameOrderName(leaf_name) >= 0;
       if (is_avatar || is_rank_frame) {
         packed_assets.push_back(PackedUiAsset{name, std::move(payload)});
       }
@@ -254,6 +255,7 @@ void LoadContributorAvatarEntries(std::vector<ContributorAvatarEntry> &entries, 
     packed_assets = LoadPackedAvatarAssets(exe_path);
     for (const PackedUiAsset &asset : packed_assets) {
       packed_asset_by_name.emplace(asset.name, &asset);
+      packed_asset_by_name.emplace(std::filesystem::path(asset.name).filename().string(), &asset);
     }
   }
   const bool has_packed_assets = !packed_assets.empty();
@@ -261,14 +263,14 @@ void LoadContributorAvatarEntries(std::vector<ContributorAvatarEntry> &entries, 
   if (has_packed_assets) {
     for (const PackedUiAsset &asset : packed_assets) {
       AvatarCandidate candidate;
-      const std::wstring asset_name_w = Utf8ToWide(asset.name);
+      const std::wstring asset_name_w = Utf8ToWide(std::filesystem::path(asset.name).filename().string());
       if (ParseAvatarCandidateName(asset_name_w, candidate)) {
         candidate.path = std::filesystem::path(asset.name);
         candidates.push_back(std::move(candidate));
         continue;
       }
 
-      const int rank_order = ParseRankFrameOrderName(asset.name);
+      const int rank_order = ParseRankFrameOrderName(std::filesystem::path(asset.name).filename().string());
       if (rank_order < 0 || rank_order > 3 || rank_frames.count(rank_order) > 0) continue;
       SDL_Surface *surface = load_surface_from_memory(asset.payload.data(), asset.payload.size());
       if (!surface) continue;

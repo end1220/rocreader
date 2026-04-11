@@ -1,7 +1,9 @@
 #include "reader_session_ops.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 
 bool OpenReaderSession(const std::string &book_path, const std::string &ext, ReaderOpenDeps &deps) {
   deps.ui.current_book = book_path;
@@ -81,6 +83,16 @@ void CloseReaderSession(ReaderCloseDeps &deps) {
     deps.ui.progress.zoom = active_epub.zoom;
     deps.ui.progress.rotation = active_epub.rotation;
   } else if (deps.ui.mode == ReaderMode::Txt && deps.ui.txt_reader.open) {
+    if (!deps.ui.txt_reader.line_source_offsets.empty()) {
+      const size_t top_line = std::min(
+          deps.ui.txt_reader.line_source_offsets.size() - 1,
+          static_cast<size_t>(std::max(0, deps.ui.txt_reader.scroll_px /
+                                                 std::max(1, deps.ui.txt_reader.line_h))));
+      deps.ui.progress.scroll_x = static_cast<int>(std::min<size_t>(
+          deps.ui.txt_reader.line_source_offsets[top_line], static_cast<size_t>(std::numeric_limits<int>::max())));
+    } else {
+      deps.ui.progress.scroll_x = 0;
+    }
     deps.ui.progress.page = (deps.ui.txt_reader.line_h > 0) ? (deps.ui.txt_reader.scroll_px / deps.ui.txt_reader.line_h) : 0;
     deps.ui.progress.scroll_y = deps.ui.txt_reader.scroll_px;
     deps.ui.txt_reader.resume_cache_dirty = true;

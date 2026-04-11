@@ -51,7 +51,9 @@ void HandleSettingsInput(SettingsRuntimeInputDeps &deps) {
   }
 
   if (!deps.settings_close_armed) {
-    const bool any_toggle_held = deps.input.IsPressed(Button::Start) || deps.input.IsPressed(Button::Select);
+    const bool any_toggle_held =
+        deps.input.IsPressed(Button::Start) || deps.input.IsPressed(Button::Select) ||
+        deps.input.IsPressed(Button::Menu);
     if (!any_toggle_held) deps.settings_close_armed = true;
   }
 
@@ -159,6 +161,11 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
   const SDL_Color title_color{240, 246, 255, 255};
   const SDL_Color item_color{230, 236, 248, 255};
   TextCacheEntry *title_tex = deps.get_title_text_texture ? deps.get_title_text_texture(menu_title, title_color) : nullptr;
+  const int title_max_w = std::max(0, menu_width - 20);
+  const bool compact_sidebar = deps.layout.screen_w <= 640 || menu_width <= 160;
+  if (compact_sidebar && title_tex && title_tex->w > title_max_w && deps.get_text_texture) {
+    title_tex = deps.get_text_texture(menu_title, title_color);
+  }
   int divider_y = menu_y + 68 + deps.layout.settings_content_offset_y;
   if (title_tex && title_tex->texture) {
     const int side_margin = std::max(0, (menu_width - title_tex->w) / 2);

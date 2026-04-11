@@ -22,6 +22,20 @@ struct TxtTextServiceState {
   size_t max_wrapped_lines = 0;
 };
 
+struct TxtViewportRequest {
+  int screen_w = 0;
+  int screen_h = 0;
+  int base_margin_x = 0;
+  int base_margin_y = 0;
+  int font_pt = 0;
+  int line_h = 0;
+};
+
+struct TxtWrappedLine {
+  std::string text;
+  size_t source_offset = 0;
+};
+
 using NormalizePathKeyFn = std::function<std::string(const std::string &)>;
 
 std::string MakeTxtLayoutCacheKey(const std::string &path, const SDL_Rect &bounds, int line_h,
@@ -39,9 +53,8 @@ bool LoadTxtResumeCacheFromDisk(TxtTextServiceState &state, const std::string &c
 void SaveTxtResumeCacheToDisk(TxtTextServiceState &state, const std::string &cache_key,
                               const std::string &book_path,
                               const TxtReaderState &state_to_save);
-SDL_Rect GetTxtViewportBounds(SDL_Renderer *renderer, int screen_w, int screen_h,
-                              int margin_x, int margin_y);
+SDL_Rect GetTxtViewportBounds(SDL_Renderer *renderer, const TxtViewportRequest &request);
 #ifdef HAVE_SDL2_TTF
 bool AppendWrappedTextLine(TxtReaderState &state, const std::string &line, TTF_Font *font,
-                           size_t max_wrapped_lines);
+                           size_t source_line_offset, size_t max_wrapped_lines);
 #endif

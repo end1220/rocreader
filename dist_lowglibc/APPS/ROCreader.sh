@@ -59,6 +59,277 @@ write_installed_version() {
   printf '%s\n' "$version" >"$INSTALLED_VERSION_FILE"
 }
 
+read_config_screen_profile() {
+  config_path="$APP_DIR/native_config.ini"
+  [ -r "$config_path" ] || return 1
+  profile="$(awk -F= '$1 == "screen_profile" { print $2; exit }' "$config_path" | tr -d '\r' | tr 'A-Z' 'a-z')"
+  case "$profile" in
+    640x480|640|720x480|720)
+      printf '%s\n' "$profile"
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+read_device_model_name() {
+  if [ -n "${ROCREADER_DEVICE_MODEL:-}" ]; then
+    printf '%s\n' "$ROCREADER_DEVICE_MODEL" | tr -d '\r' | tr 'A-Z' 'a-z'
+    return 0
+  fi
+  for path in \
+    /sys/firmware/devicetree/base/model \
+    /proc/device-tree/model \
+    /tmp/device_info.txt \
+    /tmp/sysinfo/model \
+    /proc/cmdline \
+    /etc/hostname \
+    /sys/devices/virtual/dmi/id/product_name \
+    /sys/devices/virtual/dmi/id/board_name; do
+    [ -r "$path" ] || continue
+    tr -d '\000\r' <"$path" | tr 'A-Z' 'a-z' | head -n 1
+    return 0
+  done
+  return 1
+}
+
+log_device_model_candidates() {
+  if [ -n "${ROCREADER_DEVICE_MODEL:-}" ]; then
+    log_line "[launcher] model candidate env: $(printf '%s' "$ROCREADER_DEVICE_MODEL" | tr -d '\r' | tr 'A-Z' 'a-z')"
+  else
+    log_line "[launcher] model candidate env: none"
+  fi
+  for path in \
+    /sys/firmware/devicetree/base/model \
+    /proc/device-tree/model \
+    /tmp/device_info.txt \
+    /tmp/sysinfo/model \
+    /proc/cmdline \
+    /etc/hostname \
+    /sys/devices/virtual/dmi/id/product_name \
+    /sys/devices/virtual/dmi/id/board_name; do
+    if [ -r "$path" ]; then
+      value="$(tr -d '\000\r' <"$path" | tr 'A-Z' 'a-z' | head -n 1)"
+      if [ -n "$value" ]; then
+        log_line "[launcher] model candidate $path: $value"
+      else
+        log_line "[launcher] model candidate $path: <empty>"
+      fi
+    else
+      log_line "[launcher] model candidate $path: <unreadable>"
+    fi
+  done
+}
+
+log_screen_size_candidates() {
+  for path in \
+    /sys/class/graphics/fb0/modes \
+    /sys/class/graphics/fb0/mode \
+    /sys/class/graphics/fb1/modes \
+    /sys/class/graphics/fb1/mode \
+    /sys/class/graphics/fb0/virtual_size \
+    /sys/class/graphics/fb1/virtual_size; do
+    if [ -r "$path" ]; then
+      value="$(tr -d '\000\r' <"$path" | head -n 1)"
+      if [ -n "$value" ]; then
+        log_line "[launcher] screen candidate $path: $value"
+      else
+        log_line "[launcher] screen candidate $path: <empty>"
+      fi
+    else
+      log_line "[launcher] screen candidate $path: <unreadable>"
+    fi
+  done
+}
+
+screen_profile_from_device_model() {
+  model_name="${ROCREADER_DEVICE_MODEL:-}"
+  case "$model_name" in
+    *rg34xx*|*34xx*)
+      printf '720x480|%s\n' "$model_name"
+      return 0
+      ;;
+    *rg35xx*|*35xx*|*rg40xx*|*40xx*)
+      printf '640x480|%s\n' "$model_name"
+      return 0
+      ;;
+  esac
+  model_token="$(printf '%s\n' "$model_name" | sed -n 's/.*\([a-z0-9_-]*34xx[a-z0-9_-]*\).*/\1/p' | head -n 1)"
+  case "$model_token" in
+    *34xx*)
+      printf '720x480|%s\n' "$model_token"
+      return 0
+      ;;
+  esac
+  model_token="$(printf '%s\n' "$model_name" | sed -n 's/.*\([a-z0-9_-]*35xx[a-z0-9_-]*\).*/\1/p' | head -n 1)"
+  case "$model_token" in
+    *35xx*)
+      printf '640x480|%s\n' "$model_token"
+      return 0
+      ;;
+  esac
+  model_token="$(printf '%s\n' "$model_name" | sed -n 's/.*\([a-z0-9_-]*40xx[a-z0-9_-]*\).*/\1/p' | head -n 1)"
+  case "$model_token" in
+    *40xx*)
+      printf '640x480|%s\n' "$model_token"
+      return 0
+      ;;
+  esac
+
+  for path in \
+    /sys/firmware/devicetree/base/model \
+    /proc/device-tree/model \
+    /tmp/device_info.txt \
+    /tmp/sysinfo/model \
+    /proc/cmdline \
+    /etc/hostname \
+    /sys/devices/virtual/dmi/id/product_name \
+    /sys/devices/virtual/dmi/id/board_name; do
+    [ -r "$path" ] || continue
+    model_name="$(tr -d '\000\r' <"$path" | tr 'A-Z' 'a-z' | head -n 1)"
+    case "$model_name" in
+      *rg34xx*|*34xx*)
+        printf '720x480|%s\n' "$model_name"
+        return 0
+        ;;
+      *rg35xx*|*35xx*|*rg40xx*|*40xx*)
+        printf '640x480|%s\n' "$model_name"
+        return 0
+        ;;
+    esac
+    model_token="$(printf '%s\n' "$model_name" | sed -n 's/.*\([a-z0-9_-]*34xx[a-z0-9_-]*\).*/\1/p' | head -n 1)"
+    case "$model_token" in
+      *34xx*)
+        printf '720x480|%s\n' "$model_token"
+        return 0
+        ;;
+    esac
+    model_token="$(printf '%s\n' "$model_name" | sed -n 's/.*\([a-z0-9_-]*35xx[a-z0-9_-]*\).*/\1/p' | head -n 1)"
+    case "$model_token" in
+      *35xx*)
+        printf '640x480|%s\n' "$model_token"
+        return 0
+        ;;
+    esac
+    model_token="$(printf '%s\n' "$model_name" | sed -n 's/.*\([a-z0-9_-]*40xx[a-z0-9_-]*\).*/\1/p' | head -n 1)"
+    case "$model_token" in
+      *40xx*)
+        printf '640x480|%s\n' "$model_token"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+normalize_screen_override() {
+  case "${ROCREADER_SCREEN_PROFILE:-}" in
+    640x480|640)
+      export ROCREADER_SCREEN_W=640
+      export ROCREADER_SCREEN_H=480
+      ;;
+    720x480|720)
+      export ROCREADER_SCREEN_W=720
+      export ROCREADER_SCREEN_H=480
+      ;;
+  esac
+}
+
+detect_screen_size_token() {
+  for path in \
+    /sys/class/graphics/fb0/modes \
+    /sys/class/graphics/fb0/mode \
+    /sys/class/graphics/fb1/modes \
+    /sys/class/graphics/fb1/mode \
+    /sys/class/graphics/fb0/virtual_size \
+    /sys/class/graphics/fb1/virtual_size; do
+    [ -r "$path" ] || continue
+    value="$(tr -d '\000\r' <"$path" | head -n 1)"
+    case "$value" in
+      *640*)
+        printf '%s\n' "640x480"
+        return 0
+        ;;
+      *720*)
+        printf '%s\n' "720x480"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+ensure_screen_override_if_needed() {
+  normalize_screen_override
+  if [ -n "${ROCREADER_SCREEN_W:-}" ] && [ -n "${ROCREADER_SCREEN_H:-}" ]; then
+    log_line "[launcher] screen override preset: ${ROCREADER_SCREEN_W}x${ROCREADER_SCREEN_H}"
+    return 0
+  fi
+
+  config_profile="$(read_config_screen_profile || true)"
+  case "$config_profile" in
+    640x480|640)
+      export ROCREADER_SCREEN_PROFILE=640x480
+      export ROCREADER_SCREEN_W=640
+      export ROCREADER_SCREEN_H=480
+      log_line "[launcher] screen override config: 640x480"
+      return 0
+      ;;
+    720x480|720)
+      export ROCREADER_SCREEN_PROFILE=720x480
+      export ROCREADER_SCREEN_W=720
+      export ROCREADER_SCREEN_H=480
+      log_line "[launcher] screen override config: 720x480"
+      return 0
+      ;;
+  esac
+
+  model_rule="$(screen_profile_from_device_model || true)"
+  case "$model_rule" in
+    640x480\|*)
+      model_name="${model_rule#*|}"
+      export ROCREADER_SCREEN_PROFILE=640x480
+      export ROCREADER_SCREEN_W=640
+      export ROCREADER_SCREEN_H=480
+      log_line "[launcher] screen override model: $model_name -> 640x480"
+      return 0
+      ;;
+    720x480\|*)
+      model_name="${model_rule#*|}"
+      export ROCREADER_SCREEN_PROFILE=720x480
+      export ROCREADER_SCREEN_W=720
+      export ROCREADER_SCREEN_H=480
+      log_line "[launcher] screen override model: $model_name -> 720x480"
+      return 0
+      ;;
+  esac
+  model_name="$(read_device_model_name || true)"
+  if [ -n "$model_name" ]; then
+    log_line "[launcher] device model observed: $model_name"
+  else
+    log_line "[launcher] device model observed: none"
+  fi
+  log_device_model_candidates
+  log_screen_size_candidates
+
+  size="$(detect_screen_size_token || true)"
+  case "$size" in
+    640x480)
+      export ROCREADER_SCREEN_W=640
+      export ROCREADER_SCREEN_H=480
+      log_line "[launcher] screen auto-detect override: 640x480"
+      ;;
+    720x480)
+      export ROCREADER_SCREEN_W=720
+      export ROCREADER_SCREEN_H=480
+      log_line "[launcher] screen auto-detect override: 720x480"
+      ;;
+    *)
+      log_line "[launcher] screen auto-detect override: none"
+      ;;
+  esac
+}
+
 find_pending_marker() {
   for root in /mnt/mmc /mnt/sdcard; do
     marker="$root/Downloads/ROCreader_update_pending.txt"
@@ -250,6 +521,7 @@ fi
 
 log_line "===== $(date '+%F %T %Z') ====="
 perform_pending_update_if_any
+ensure_screen_override_if_needed
 
 if [ -n "${SDL_VIDEODRIVER:-}" ]; then
   run_with_driver "$SDL_VIDEODRIVER" "forced" "$LIB_FULL_DIR"

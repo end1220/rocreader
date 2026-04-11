@@ -3,6 +3,8 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
+#include <sstream>
 
 const char *ButtonName(Button b) {
   switch (b) {
@@ -27,6 +29,10 @@ const char *ButtonName(Button b) {
   }
 }
 
+const char *ButtonNameOrInvalid(Button b) {
+  return InputManager::IsValid(b) ? ButtonName(b) : "Invalid";
+}
+
 const char *SdlEventName(Uint32 type) {
   switch (type) {
   case SDL_KEYDOWN: return "SDL_KEYDOWN";
@@ -42,11 +48,11 @@ const char *SdlEventName(Uint32 type) {
   }
 }
 
-InputManager::InputManager(const std::string &mapping_path, bool h700_defaults) {
+InputManager::InputManager(const std::string &mapping_path, bool h700_defaults, bool h700_34xx_style) {
   pad_map_.fill(InvalidButton());
   joy_map_.fill(InvalidButton());
   LoadDefaultPadMap();
-  LoadDefaultJoyMap(h700_defaults);
+  LoadDefaultJoyMap(h700_defaults, h700_34xx_style);
   LoadOverrides(mapping_path);
 }
 
@@ -66,8 +72,16 @@ void InputManager::HandleEvent(const SDL_Event &e) {
   } else if (e.type == SDL_KEYUP) {
     SetDown(KeyToButton(e.key.keysym.sym), false);
   } else if (e.type == SDL_CONTROLLERBUTTONDOWN) {
+    const Button mapped = PadToButton(e.cbutton.button);
+    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+              << " pad_button=" << static_cast<int>(e.cbutton.button)
+              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
     SetDown(PadToButton(e.cbutton.button), true);
   } else if (e.type == SDL_CONTROLLERBUTTONUP) {
+    const Button mapped = PadToButton(e.cbutton.button);
+    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+              << " pad_button=" << static_cast<int>(e.cbutton.button)
+              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
     SetDown(PadToButton(e.cbutton.button), false);
   } else if (e.type == SDL_CONTROLLERAXISMOTION) {
     constexpr int kDeadzone = 16000;
@@ -81,8 +95,16 @@ void InputManager::HandleEvent(const SDL_Event &e) {
       SetDown(Button::Down, val > kDeadzone);
     }
   } else if (e.type == SDL_JOYBUTTONDOWN) {
+    const Button mapped = JoyButtonToButton(e.jbutton.button);
+    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+              << " joy_button=" << static_cast<int>(e.jbutton.button)
+              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
     SetDown(JoyButtonToButton(e.jbutton.button), true);
   } else if (e.type == SDL_JOYBUTTONUP) {
+    const Button mapped = JoyButtonToButton(e.jbutton.button);
+    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+              << " joy_button=" << static_cast<int>(e.jbutton.button)
+              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
     SetDown(JoyButtonToButton(e.jbutton.button), false);
   } else if (e.type == SDL_JOYHATMOTION) {
     const uint8_t v = e.jhat.value;
@@ -149,6 +171,10 @@ void InputManager::ResetAll() {
     s = BtnState{};
   }
 }
+
+std::string InputManager::DescribeJoyMap() const { return DescribeMap(joy_map_, "joy"); }
+
+std::string InputManager::DescribePadMap() const { return DescribeMap(pad_map_, "pad"); }
 
 Button InputManager::InvalidButton() { return static_cast<Button>(-1); }
 
@@ -235,12 +261,12 @@ void InputManager::LoadDefaultPadMap() {
   pad_map_[SDL_CONTROLLER_BUTTON_START] = Button::Start;
 }
 
-void InputManager::LoadDefaultJoyMap(bool h700_defaults) {
+void InputManager::LoadDefaultJoyMap(bool h700_defaults, bool h700_34xx_style) {
   joy_map_[0] = Button::A;
   joy_map_[1] = Button::B;
   joy_map_[4] = Button::L1;
   joy_map_[5] = Button::R1;
-  if (h700_defaults) {
+  if (h700_defaults && h700_34xx_style) {
     joy_map_[2] = Button::Y;
     joy_map_[3] = Button::X;
     joy_map_[6] = Button::Select;
@@ -254,13 +280,13 @@ void InputManager::LoadDefaultJoyMap(bool h700_defaults) {
     joy_map_[15] = Button::VolDown;
     joy_map_[16] = Button::VolUp;
   } else {
-    joy_map_[2] = Button::X;
-    joy_map_[3] = Button::Y;
-    joy_map_[6] = Button::L2;
-    joy_map_[7] = Button::R2;
-    joy_map_[8] = Button::Select;
-    joy_map_[9] = Button::Start;
-    joy_map_[10] = Button::Menu;
+    joy_map_[2] = Button::Y;
+    joy_map_[3] = Button::X;
+    joy_map_[6] = Button::Select;
+    joy_map_[7] = Button::Start;
+    joy_map_[8] = Button::Menu;
+    joy_map_[9] = Button::L2;
+    joy_map_[10] = Button::R2;
     joy_map_[11] = Button::Menu;
     joy_map_[12] = Button::Select;
     joy_map_[13] = Button::Start;
@@ -346,4 +372,17 @@ const BtnState &InputManager::Get(Button b) const {
   static BtnState empty;
   if (!IsValid(b)) return empty;
   return states_[static_cast<int>(b)];
+}
+
+std::string InputManager::DescribeMap(const std::array<Button, 32> &map, const char *prefix) const {
+  std::ostringstream out;
+  bool first = true;
+  for (size_t i = 0; i < map.size(); ++i) {
+    const Button mapped = map[i];
+    if (!IsValid(mapped)) continue;
+    if (!first) out << ' ';
+    out << prefix << '.' << i << '=' << ButtonName(mapped);
+    first = false;
+  }
+  return out.str();
 }

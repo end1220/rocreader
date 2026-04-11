@@ -23,20 +23,61 @@ int ScrollForPercent(int pct, int max_scroll) {
   if (pct >= 100) return max_scroll;
   return static_cast<int>((static_cast<int64_t>(pct) * max_scroll + 99) / 100);
 }
+
+size_t TopVisibleWrappedLineIndex(const TxtReaderState &state) {
+  const int line_h = std::max(1, state.line_h);
+  if (state.lines.empty()) return 0;
+  const int index = std::clamp(state.scroll_px / line_h, 0, static_cast<int>(state.lines.size()) - 1);
+  return static_cast<size_t>(index);
+}
+
+size_t TopVisibleSourceOffset(const TxtReaderState &state) {
+  if (state.line_source_offsets.empty()) return 0;
+  const size_t top_line = std::min(TopVisibleWrappedLineIndex(state), state.line_source_offsets.size() - 1);
+  return state.line_source_offsets[top_line];
+}
+
+int ScrollForSourceOffset(const TxtReaderState &state, size_t source_offset) {
+  if (state.line_source_offsets.empty()) return 0;
+  auto upper = std::upper_bound(state.line_source_offsets.begin(), state.line_source_offsets.end(), source_offset);
+  size_t line_index = 0;
+  if (upper == state.line_source_offsets.begin()) {
+    line_index = 0;
+  } else {
+    line_index = static_cast<size_t>(std::distance(state.line_source_offsets.begin(), upper - 1));
+  }
+  return static_cast<int>(line_index) * std::max(1, state.line_h);
+}
+
+void SyncScrollToRestoreAnchor(TxtReaderState &state) {
+  if (state.restore_source_offset > 0 && !state.line_source_offsets.empty()) {
+    state.target_scroll_px = ScrollForSourceOffset(state, state.restore_source_offset);
+  }
+  const int max_scroll = std::max(0, state.content_h - state.viewport_h);
+  state.scroll_px = std::clamp(state.target_scroll_px, 0, max_scroll);
+}
 }
 
 void FinalizeTextReaderLoading(TxtReaderState &state, const std::string *cache_key, TxtReaderSessionDeps &deps) {
   if ((state.truncated || state.limit_hit) && !state.truncation_notice_added) {
+    const size_t notice_source_offset = std::max(state.parse_pos, TopVisibleSourceOffset(state));
     state.lines.push_back("");
+    state.line_source_offsets.push_back(notice_source_offset);
     state.lines.push_back("[TXT preview truncated]");
+    state.line_source_offsets.push_back(notice_source_offset);
     state.truncation_notice_added = true;
   }
-  if (state.lines.empty()) state.lines.emplace_back("");
+  if (state.lines.empty()) {
+    state.lines.emplace_back("");
+    state.line_source_offsets.push_back(0);
+  }
   state.content_h = static_cast<int>(state.lines.size()) * state.line_h;
+  SyncScrollToRestoreAnchor(state);
   state.resume_cache_dirty = true;
   if (cache_key && !cache_key->empty() && !state.loading) {
     TxtLayoutCacheEntry entry;
     entry.lines = state.lines;
+    entry.line_source_offsets = state.line_source_offsets;
     entry.viewport_w = state.viewport_w;
     entry.viewport_h = state.viewport_h;
     entry.line_h = state.line_h;
@@ -57,11 +98,12 @@ void ProcessTextLayoutChunk(TxtReaderState &state, uint32_t budget_ms, size_t by
   size_t consumed = 0;
   const size_t prev_parse_pos = state.parse_pos;
   const size_t prev_line_count = state.lines.size();
+  if (state.pending_line.empty()) state.pending_line_source_offset = state.parse_pos;
   while (state.parse_pos < state.pending_raw.size() && !state.limit_hit) {
     const char ch = state.pending_raw[state.parse_pos++];
     ++consumed;
     if (ch == '\n' || ch == '\r') {
-      if (!deps.append_wrapped_text_line(state, state.pending_line)) {
+      if (!deps.append_wrapped_text_line(state, state.pending_line, state.pending_line_source_offset)) {
         state.limit_hit = true;
         break;
       }
@@ -70,20 +112,21 @@ void ProcessTextLayoutChunk(TxtReaderState &state, uint32_t budget_ms, size_t by
         ++state.parse_pos;
         ++consumed;
       }
+      state.pending_line_source_offset = state.parse_pos;
     } else {
+      if (state.pending_line.empty()) state.pending_line_source_offset = state.parse_pos - 1;
       state.pending_line.push_back(ch);
     }
     if (consumed >= byte_budget) break;
     if (budget_ms > 0 && SDL_GetTicks() - started >= budget_ms) break;
   }
   if (!state.limit_hit && state.parse_pos >= state.pending_raw.size()) {
-    if (!deps.append_wrapped_text_line(state, state.pending_line)) {
+    if (!deps.append_wrapped_text_line(state, state.pending_line, state.pending_line_source_offset)) {
       state.limit_hit = true;
     }
     state.pending_line.clear();
   }
-  const int max_scroll = std::max(0, state.content_h - state.viewport_h);
-  state.scroll_px = std::clamp(state.target_scroll_px, 0, max_scroll);
+  SyncScrollToRestoreAnchor(state);
   if (state.parse_pos != prev_parse_pos || state.lines.size() != prev_line_count) {
     state.resume_cache_dirty = true;
   }
@@ -98,12 +141,20 @@ void ProcessTextLayoutChunk(TxtReaderState &state, uint32_t budget_ms, size_t by
 
 void WarmTextReaderToTarget(TxtReaderState &state, const std::string *cache_key, TxtReaderSessionDeps &deps) {
   if (!state.loading) return;
-  const int desired_bottom = state.target_scroll_px + state.viewport_h;
-  if (desired_bottom <= state.viewport_h) return;
-  while (state.loading && state.content_h < desired_bottom) {
-    ProcessTextLayoutChunk(state, 0, 262144, cache_key, deps);
+  if (state.restore_source_offset > 0) {
+    while (state.loading && state.parse_pos < state.restore_source_offset) {
+      ProcessTextLayoutChunk(state, 0, 262144, cache_key, deps);
+    }
+    SyncScrollToRestoreAnchor(state);
+    if (!state.loading) return;
   }
-  state.scroll_px = std::clamp(state.target_scroll_px, 0, std::max(0, state.content_h - state.viewport_h));
+  const int desired_bottom = state.target_scroll_px + state.viewport_h;
+  if (desired_bottom > state.viewport_h) {
+    while (state.loading && state.content_h < desired_bottom) {
+      ProcessTextLayoutChunk(state, 0, 262144, cache_key, deps);
+    }
+  }
+  SyncScrollToRestoreAnchor(state);
 }
 
 void TickTextBookSession(const std::string &book_path, TxtReaderSessionDeps &deps,
@@ -140,18 +191,23 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
   next.viewport_h = text_bounds.h;
   next.line_h = line_h;
   next.cache_key = txt_cache_key;
+  const size_t preferred_source_offset = deps.ui.progress.scroll_x > 0
+                                             ? static_cast<size_t>(std::max(0, deps.ui.progress.scroll_x))
+                                             : 0;
 
   auto txt_cache_it = deps.layout_cache.find(next.cache_key);
   if (txt_cache_it != deps.layout_cache.end()) {
     txt_cache_it->second.last_use = SDL_GetTicks();
     next.lines = txt_cache_it->second.lines;
+    next.line_source_offsets = txt_cache_it->second.line_source_offsets;
     next.content_h = txt_cache_it->second.content_h;
     next.truncated = txt_cache_it->second.truncated;
     next.limit_hit = txt_cache_it->second.limit_hit;
     next.truncation_notice_added = true;
     next.loading = false;
+    next.restore_source_offset = preferred_source_offset;
     next.target_scroll_px = std::max(0, deps.ui.progress.scroll_y);
-    next.scroll_px = std::clamp(next.target_scroll_px, 0, std::max(0, next.content_h - next.viewport_h));
+    SyncScrollToRestoreAnchor(next);
     deps.ui.txt_reader = std::move(next);
     deps.ui.mode = ReaderMode::Txt;
     deps.ui.progress_overlay_visible = false;
@@ -166,13 +222,15 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
     deps.layout_cache[next.cache_key] = disk_cache_entry;
     deps.prune_layout_cache();
     next.lines = disk_cache_entry.lines;
+    next.line_source_offsets = disk_cache_entry.line_source_offsets;
     next.content_h = disk_cache_entry.content_h;
     next.truncated = disk_cache_entry.truncated;
     next.limit_hit = disk_cache_entry.limit_hit;
     next.truncation_notice_added = true;
     next.loading = false;
+    next.restore_source_offset = preferred_source_offset;
     next.target_scroll_px = std::max(0, deps.ui.progress.scroll_y);
-    next.scroll_px = std::clamp(next.target_scroll_px, 0, std::max(0, next.content_h - next.viewport_h));
+    SyncScrollToRestoreAnchor(next);
     deps.ui.txt_reader = std::move(next);
     deps.ui.mode = ReaderMode::Txt;
     deps.ui.progress_overlay_visible = false;
@@ -186,21 +244,23 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
     const int restored_scroll_px =
         std::max(std::max(0, deps.ui.progress.scroll_y), std::max(0, resume_cache_entry.scroll_px));
     next.lines = std::move(resume_cache_entry.lines);
+    next.line_source_offsets = std::move(resume_cache_entry.line_source_offsets);
     next.pending_raw = std::move(resume_cache_entry.pending_raw);
     next.pending_line = std::move(resume_cache_entry.pending_line);
+    next.pending_line_source_offset = resume_cache_entry.pending_line_source_offset;
     next.content_h = resume_cache_entry.content_h;
     next.parse_pos = resume_cache_entry.parse_pos;
+    next.restore_source_offset = std::max(preferred_source_offset, resume_cache_entry.restore_source_offset);
     next.loading = resume_cache_entry.loading;
     next.truncated = resume_cache_entry.truncated;
     next.limit_hit = resume_cache_entry.limit_hit;
     next.truncation_notice_added = resume_cache_entry.truncation_notice_added;
     next.target_scroll_px = restored_scroll_px;
-    next.scroll_px = std::clamp(next.target_scroll_px, 0, std::max(0, next.content_h - next.viewport_h));
+    SyncScrollToRestoreAnchor(next);
     next.last_resume_cache_save = SDL_GetTicks();
     next.resume_cache_dirty = false;
     deps.ui.txt_reader = std::move(next);
-    deps.ui.txt_reader.scroll_px =
-        std::clamp(deps.ui.txt_reader.target_scroll_px, 0, std::max(0, deps.ui.txt_reader.content_h - deps.ui.txt_reader.viewport_h));
+    SyncScrollToRestoreAnchor(deps.ui.txt_reader);
     deps.ui.mode = ReaderMode::Txt;
     deps.ui.progress_overlay_visible = false;
     deps.invalidate_all_render_cache();
@@ -245,7 +305,9 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
 
   next.pending_raw = std::move(raw);
   next.pending_line.reserve(256);
+  next.pending_line_source_offset = 0;
   next.parse_pos = 0;
+  next.restore_source_offset = preferred_source_offset;
   next.loading = true;
   next.truncated = truncated;
   next.limit_hit = false;
@@ -260,8 +322,7 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
   ProcessTextLayoutChunk(deps.ui.txt_reader, 8, 32768, &deps.ui.txt_reader.cache_key, deps);
   WarmTextReaderToTarget(deps.ui.txt_reader, &deps.ui.txt_reader.cache_key, deps);
   if (!deps.ui.txt_reader.loading) FinalizeTextReaderLoading(deps.ui.txt_reader, &deps.ui.txt_reader.cache_key, deps);
-  deps.ui.txt_reader.scroll_px =
-      std::clamp(deps.ui.txt_reader.scroll_px, 0, std::max(0, deps.ui.txt_reader.content_h - deps.ui.txt_reader.viewport_h));
+  SyncScrollToRestoreAnchor(deps.ui.txt_reader);
   deps.ui.mode = ReaderMode::Txt;
   deps.ui.progress_overlay_visible = false;
   deps.invalidate_all_render_cache();
@@ -282,6 +343,7 @@ void PersistCurrentTxtResumeSnapshot(const std::string &book_path, bool force, T
   TxtReaderState snapshot = deps.ui.txt_reader;
   snapshot.scroll_px = deps.ui.txt_reader.scroll_px;
   snapshot.target_scroll_px = deps.ui.txt_reader.scroll_px;
+  snapshot.restore_source_offset = TopVisibleSourceOffset(snapshot);
   snapshot.resume_cache_dirty = false;
   snapshot.last_resume_cache_save = now;
   if (snapshot.cache_key.empty()) {
@@ -300,6 +362,7 @@ void PersistCurrentTxtResumeSnapshot(const std::string &book_path, bool force, T
 
 void TextScrollBy(int delta_px, const std::string &book_path, TxtReaderSessionDeps &deps) {
   if (deps.ui.mode != ReaderMode::Txt || !deps.ui.txt_reader.open) return;
+  deps.ui.txt_reader.restore_source_offset = 0;
   deps.ui.txt_reader.scroll_px += delta_px;
   deps.ui.txt_reader.target_scroll_px = deps.ui.txt_reader.scroll_px;
   deps.clamp_text_scroll();
@@ -319,6 +382,7 @@ void TextJumpToPercent(int pct, const std::string &book_path, TxtReaderSessionDe
   const int clamped_pct = ClampIntLocal(pct, 0, 100);
   const int current_max_scroll = std::max(0, state.content_h - state.viewport_h);
   int target_scroll = ScrollForPercent(clamped_pct, current_max_scroll);
+  state.restore_source_offset = 0;
   state.target_scroll_px = target_scroll;
   if (state.loading) {
     WarmTextReaderToTarget(state, &state.cache_key, deps);

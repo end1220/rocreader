@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace {
 int ClampPercentLocal(int value) {
@@ -64,6 +65,16 @@ void HandleTxtReaderInput(TxtReaderInputDeps &deps) {
 
   deps.ui.progress.page = (deps.ui.txt_reader.line_h > 0) ? (deps.ui.txt_reader.scroll_px / deps.ui.txt_reader.line_h) : 0;
   deps.ui.progress.scroll_y = deps.ui.txt_reader.scroll_px;
+  if (!deps.ui.txt_reader.line_source_offsets.empty()) {
+    const size_t top_line = std::min(
+        deps.ui.txt_reader.line_source_offsets.size() - 1,
+        static_cast<size_t>(std::max(0, deps.ui.txt_reader.scroll_px /
+                                               std::max(1, deps.ui.txt_reader.line_h))));
+    deps.ui.progress.scroll_x = static_cast<int>(std::min<size_t>(
+        deps.ui.txt_reader.line_source_offsets[top_line], static_cast<size_t>(std::numeric_limits<int>::max())));
+  } else {
+    deps.ui.progress.scroll_x = 0;
+  }
 }
 
 void HandleTxtProgressOverlayInput(TxtProgressOverlayInputDeps &deps) {
