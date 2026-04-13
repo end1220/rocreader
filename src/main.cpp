@@ -901,8 +901,7 @@ int main(int, char **) {
 #if defined(__arm__) || defined(__aarch64__)
   const bool use_h700_defaults = true;
   const std::string device_model_token = DetectDeviceModelToken();
-  const bool use_h700_34xx_keymap =
-      device_model_token.find("34xx") != std::string::npos || screen_profile.screen_w >= 720;
+  const bool use_h700_34xx_keymap = Uses34xxSpKeymap(device_model_token);
 #else
   const bool use_h700_defaults = false;
   const std::string device_model_token;

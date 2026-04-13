@@ -10,6 +10,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -21,6 +22,26 @@ std::string ToLowerAscii(std::string text) {
   std::transform(text.begin(), text.end(), text.begin(),
                  [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
   return text;
+}
+
+std::string TrimAscii(std::string text) {
+  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
+    text.erase(text.begin());
+  }
+  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
+    text.pop_back();
+  }
+  return text;
+}
+
+std::string CompactAsciiAlnum(const std::string &text) {
+  std::string compact;
+  compact.reserve(text.size());
+  for (unsigned char ch : text) {
+    if (std::isalnum(ch) == 0) continue;
+    compact.push_back(static_cast<char>(std::tolower(ch)));
+  }
+  return compact;
 }
 
 bool ParsePositiveInt(const char *text, int &out_value) {
@@ -96,15 +117,64 @@ bool ReadConfigScreenProfile(int &out_w, int &out_h) {
   return false;
 }
 
-bool ApplyProfileFromModelName(const std::string &model_name, int &out_w, int &out_h) {
-  if (model_name.empty()) return false;
-  const std::string lower = ToLowerAscii(model_name);
-  if (lower.find("34xx") != std::string::npos) {
+std::string CanonicalModelTokenFromText(const std::string &text) {
+  if (text.empty()) return {};
+  const std::string compact = CompactAsciiAlnum(text);
+  if (compact.empty()) return {};
+
+  const std::vector<std::pair<std::string, std::string>> aliases = {
+      {"rg34xxsp", "rg34xx-sp"},
+      {"34xxsp", "rg34xx-sp"},
+      {"rg35xxplus", "rg35xx-plus"},
+      {"35xxplus", "rg35xx-plus"},
+      {"rg35xxpro", "rg35xx-pro"},
+      {"35xxpro", "rg35xx-pro"},
+      {"rg35xxsp", "rg35xx-sp"},
+      {"35xxsp", "rg35xx-sp"},
+      {"rg35xxh", "rg35xx-h"},
+      {"35xxh", "rg35xx-h"},
+      {"rg40xxh", "rg40xx-h"},
+      {"40xxh", "rg40xx-h"},
+      {"rg40xxv", "rg40xx-v"},
+      {"40xxv", "rg40xx-v"},
+      {"rgcubexx", "rgcubexx"},
+      {"cubexx", "rgcubexx"},
+      {"rg28xx", "rg28xx"},
+      {"28xx", "rg28xx"},
+      {"rg34xx", "rg34xx"},
+      {"34xx", "rg34xx"},
+      {"rg35xx2024", "rg35xx"},
+      {"35xx2024", "rg35xx"},
+      {"rg35xx", "rg35xx"},
+      {"35xx", "rg35xx"},
+      {"rg40xx", "rg40xx"},
+      {"40xx", "rg40xx"},
+  };
+  for (const auto &[needle, canonical] : aliases) {
+    if (compact.find(needle) != std::string::npos) return canonical;
+  }
+  return {};
+}
+
+bool ApplyProfileFromModelToken(const std::string &model_token, int &out_w, int &out_h) {
+  if (model_token.empty()) return false;
+  // Current UI assets/layouts only have dedicated 720x480 and 640x480 variants.
+  // Keep machine-to-profile mapping explicit so special panels like CubeXX can be
+  // handled separately later instead of silently folding into the wrong profile.
+  if (model_token == "rg34xx" || model_token == "rg34xx-sp") {
     out_w = 720;
     out_h = 480;
     return true;
   }
-  if (lower.find("35xx") != std::string::npos || lower.find("40xx") != std::string::npos) {
+  if (model_token == "rg28xx" ||
+      model_token == "rg35xx" ||
+      model_token == "rg35xx-plus" ||
+      model_token == "rg35xx-h" ||
+      model_token == "rg35xx-sp" ||
+      model_token == "rg35xx-pro" ||
+      model_token == "rg40xx" ||
+      model_token == "rg40xx-v" ||
+      model_token == "rg40xx-h") {
     out_w = 640;
     out_h = 480;
     return true;
@@ -113,33 +183,82 @@ bool ApplyProfileFromModelName(const std::string &model_name, int &out_w, int &o
 }
 
 std::string ExtractModelToken(const std::string &text) {
-  const std::string lower = ToLowerAscii(text);
-  const std::vector<std::string> needles = {
-      "34xx", "35xx", "40xx", "rg34xx", "rg35xx", "rg40xx",
-  };
-  for (const std::string &needle : needles) {
-    const size_t pos = lower.find(needle);
-    if (pos == std::string::npos) continue;
-    size_t start = pos;
-    while (start > 0) {
-      const unsigned char ch = static_cast<unsigned char>(lower[start - 1]);
-      if (!std::isalnum(ch) && ch != '_' && ch != '-') break;
-      --start;
-    }
-    size_t end = pos + needle.size();
-    while (end < lower.size()) {
-      const unsigned char ch = static_cast<unsigned char>(lower[end]);
-      if (!std::isalnum(ch) && ch != '_' && ch != '-') break;
-      ++end;
-    }
-    return lower.substr(start, end - start);
+  if (text.empty()) return {};
+
+  std::istringstream lines(text);
+  std::string line;
+  while (std::getline(lines, line)) {
+    const size_t eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    const std::string key = TrimAscii(ToLowerAscii(line.substr(0, eq)));
+    if (key != "model" && key != "board" && key != "device_model" && key != "machine") continue;
+    const std::string token = CanonicalModelTokenFromText(line.substr(eq + 1));
+    if (!token.empty()) return token;
   }
-  return {};
+  return CanonicalModelTokenFromText(text);
+}
+
+bool ReadBoardIniModelToken(std::string &out_token) {
+  const std::vector<std::filesystem::path> candidates = {
+      "/oem/board.ini",
+      "/oem/Board.ini",
+      "/mnt/vendor/oem/board.ini",
+      "/mnt/vendor/board.ini",
+      "/mnt/vendor/oem/Board.ini",
+      "/mnt/vendor/Board.ini",
+  };
+  for (const auto &path : candidates) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) continue;
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string token = ExtractModelToken(text);
+    if (token.empty()) continue;
+    out_token = token;
+    return true;
+  }
+
+  const std::vector<std::filesystem::path> search_roots = {
+      "/oem",
+      "/mnt/vendor",
+  };
+  for (const auto &root : search_roots) {
+    std::error_code ec;
+    if (!std::filesystem::exists(root, ec) || ec) continue;
+    for (std::filesystem::recursive_directory_iterator it(
+             root,
+             std::filesystem::directory_options::skip_permission_denied,
+             ec),
+         end;
+         it != end;
+         it.increment(ec)) {
+      if (ec) {
+        ec.clear();
+        continue;
+      }
+      if (it.depth() > 2) {
+        it.disable_recursion_pending();
+        continue;
+      }
+      if (!it->is_regular_file(ec) || ec) {
+        ec.clear();
+        continue;
+      }
+      if (ToLowerAscii(it->path().filename().string()) != "board.ini") continue;
+      std::ifstream in(it->path(), std::ios::binary);
+      if (!in) continue;
+      const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      const std::string token = ExtractModelToken(text);
+      if (token.empty()) continue;
+      out_token = token;
+      return true;
+    }
+  }
+  return false;
 }
 
 bool ReadDeviceModelScreenProfile(int &out_w, int &out_h) {
   const std::string token = DetectDeviceModelToken();
-  if (!token.empty() && ApplyProfileFromModelName(token, out_w, out_h)) return true;
+  if (!token.empty() && ApplyProfileFromModelToken(token, out_w, out_h)) return true;
   return false;
 }
 
@@ -283,6 +402,9 @@ std::string DetectDeviceModelToken() {
     if (!lower.empty()) return lower;
   }
 
+  std::string board_ini_token;
+  if (ReadBoardIniModelToken(board_ini_token)) return board_ini_token;
+
   const std::vector<std::filesystem::path> candidates = {
       "/sys/firmware/devicetree/base/model",
       "/proc/device-tree/model",
@@ -317,6 +439,12 @@ ScreenProfile DetectScreenProfile() {
     if (TryCommitDetectedProfile(profile, detected_w, detected_h, "env")) return profile;
   }
 
+  std::string board_ini_token;
+  if (ReadBoardIniModelToken(board_ini_token) &&
+      ApplyProfileFromModelToken(board_ini_token, detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "board-ini")) return profile;
+  }
+
   if (ReadConfigScreenProfile(detected_w, detected_h)) {
     if (TryCommitDetectedProfile(profile, detected_w, detected_h, "config")) return profile;
   }
@@ -342,4 +470,9 @@ ScreenProfile DetectScreenProfile() {
   profile.detection_source = "default";
   ApplyDefaultProfile(profile);
   return profile;
+}
+
+bool Uses34xxSpKeymap(const std::string &model_token) {
+  // Only the SP hardware should use the dedicated 34xxSP key layout.
+  return model_token == "rg34xx-sp";
 }
