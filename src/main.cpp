@@ -1013,6 +1013,9 @@ int main(int, char **) {
     if (sfx_init_attempted) return false;
     sfx_init_attempted = true;
     sfx_ready = sfx.Init(exe_path);
+    if (sfx_ready) {
+      sfx.SetVolume(config.Get().sfx_volume);
+    }
     if (!sfx_ready) {
       std::cout << "[native_h700] sound: disabled (all audio backends failed)\n";
     }
@@ -1798,7 +1801,7 @@ int main(int, char **) {
     HandleVolumeControls(
         app_ui, input, now, volume_controller, config,
         [&](int volume) { sfx.SetVolume(volume); },
-        [&]() { sfx.Play(SfxId::Change); });
+        [&]() { play_sfx(SfxId::Change); });
 
     if (state == State::Shelf || state == State::Settings) {
       if (input.IsJustPressed(Button::Up) || input.IsJustPressed(Button::Down) ||
