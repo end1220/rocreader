@@ -94,6 +94,9 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
       config.MarkDirty();
     }
     state.volume_display_percent = system_percent;
+    if (cfg.audio && play_change_sfx) {
+      play_change_sfx();
+    }
   }
 
   state.volume_display_until = now + 1500;
