@@ -460,13 +460,14 @@ ScreenProfile DetectScreenProfile() {
   }
 
   std::string board_ini_token;
-  if (ReadBoardIniModelToken(board_ini_token) &&
-      ApplyProfileFromModelToken(board_ini_token, detected_w, detected_h)) {
-    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "board-ini")) return profile;
-  }
-
-  if (ReadConfigScreenProfile(detected_w, detected_h)) {
-    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "config")) return profile;
+  if (ReadBoardIniModelToken(board_ini_token)) {
+    if (ApplyProfileFromModelToken(board_ini_token, detected_w, detected_h)) {
+      if (TryCommitDetectedProfile(profile, detected_w, detected_h, "board-ini")) return profile;
+    }
+  } else {
+#if defined(__arm__) || defined(__aarch64__)
+    if (TryCommitDetectedProfile(profile, 720, 720, "board-ini-fallback")) return profile;
+#endif
   }
 
   if (ReadDeviceModelScreenProfile(detected_w, detected_h)) {
@@ -479,6 +480,10 @@ ScreenProfile DetectScreenProfile() {
 
   if (ReadFramebufferSize(detected_w, detected_h)) {
     if (TryCommitDetectedProfile(profile, detected_w, detected_h, "framebuffer")) return profile;
+  }
+
+  if (ReadConfigScreenProfile(detected_w, detected_h)) {
+    if (TryCommitDetectedProfile(profile, detected_w, detected_h, "config")) return profile;
   }
 
   if (ReadSdlDisplaySize(detected_w, detected_h)) {
