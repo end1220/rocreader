@@ -1,4 +1,5 @@
 #include "boot_runtime.h"
+#include "app_language.h"
 #include "path_adapter.h"
 
 #include <algorithm>
@@ -50,19 +51,14 @@ float BootProgressRatio(const BootRuntimeState &state) {
 }
 
 std::string MakeBootScanText(size_t current, size_t total) {
-  return std::string(u8"资源加载中...（") + std::to_string(current) + "/" + std::to_string(total) + u8"）";
+  return LocalizedBootScanText(0, current, total);
 }
 
 std::string MakeBootCoverText(size_t current, size_t total) {
-  return std::string(u8"封面缓存生成中...（") + std::to_string(current) + "/" + std::to_string(total) + u8"）";
+  return LocalizedBootCoverText(0, current, total);
 }
 std::string MakeUpdateReplayText(float ratio, bool success, const std::string &version) {
-  const std::string version_suffix = version.empty() ? std::string() : (" " + version);
-  if (!success) return std::string(u8"\u66f4\u65b0\u5b89\u88c5\u672a\u5b8c\u6210\uff0c\u6b63\u5728\u542f\u52a8\u5f53\u524d\u7248\u672c");
-  if (ratio < 0.30f) return std::string(u8"\u6b63\u5728\u5b89\u88c5\u66f4\u65b0\u5305") + version_suffix;
-  if (ratio < 0.60f) return std::string(u8"\u6b63\u5728\u89e3\u538b\u66f4\u65b0\u8d44\u6e90") + version_suffix;
-  if (ratio < 0.90f) return std::string(u8"\u6b63\u5728\u66ff\u6362\u8fd0\u884c\u65f6\u6587\u4ef6") + version_suffix;
-  return std::string(u8"\u66f4\u65b0\u5b89\u88c5\u5b8c\u6210\uff0c\u5373\u5c06\u8fdb\u5165\u4e66\u67b6");
+  return LocalizedUpdateReplayText(0, ratio, success, version);
 }
 
 bool LoadUpdateReplayStatus(const std::filesystem::path &status_path, bool &out_success, std::string &out_version) {
@@ -95,14 +91,16 @@ void InitializeBootRuntimeReplay(BootRuntimeState &state, const std::filesystem:
   state.update_replay_success = success;
   state.update_replay_version = std::move(version);
   state.update_status_path = status_path;
-  state.status_text = MakeUpdateReplayText(0.0f, state.update_replay_success, state.update_replay_version);
+  state.status_text =
+      LocalizedUpdateReplayText(state.language_index, 0.0f, state.update_replay_success, state.update_replay_version);
 }
 
 void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDeps &deps) {
   state.timer += dt;
   if (state.phase == BootPhase::UpdateReplay) {
     const float replay_ratio = std::clamp(state.timer / kUpdateReplayDurationSec, 0.0f, 1.0f);
-    state.status_text = MakeUpdateReplayText(replay_ratio, state.update_replay_success, state.update_replay_version);
+    state.status_text = LocalizedUpdateReplayText(state.language_index, replay_ratio, state.update_replay_success,
+                                                  state.update_replay_version);
     if (replay_ratio >= 1.0f) {
       if (!state.update_status_path.empty()) {
         std::error_code remove_ec;
@@ -110,7 +108,7 @@ void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDep
       }
       state.timer = 0.0f;
       state.phase = BootPhase::CountBooks;
-      state.status_text = MakeBootScanText(0, 0);
+      state.status_text = LocalizedBootScanText(state.language_index, 0, 0);
     }
   } else if (state.phase == BootPhase::CountBooks) {
     if (!state.count_iterator_active) {
@@ -142,7 +140,7 @@ void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDep
         state.scanned_books.push_back(std::move(item));
       }
     }
-    state.status_text = MakeBootScanText(0, 0);
+    state.status_text = LocalizedBootScanText(state.language_index, 0, 0);
     if (!state.count_iterator_active && state.count_root_index >= deps.books_roots.size()) {
       std::sort(state.scanned_books.begin(), state.scanned_books.end(),
                 [](const BookItem &a, const BookItem &b) {
@@ -154,7 +152,7 @@ void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDep
       state.scan_index = 0;
       state.cover_generate_queue.clear();
       state.phase = BootPhase::ScanBooks;
-      state.status_text = MakeBootScanText(0, state.total_books);
+      state.status_text = LocalizedBootScanText(state.language_index, 0, state.total_books);
     }
   } else if (state.phase == BootPhase::ScanBooks) {
     size_t processed = 0;
@@ -175,11 +173,11 @@ void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDep
       ++state.scan_index;
       ++processed;
     }
-    state.status_text = MakeBootScanText(state.scan_index, state.total_books);
+    state.status_text = LocalizedBootScanText(state.language_index, state.scan_index, state.total_books);
     if (state.scan_index >= state.scanned_books.size()) {
       state.cover_generate_index = 0;
       state.phase = BootPhase::GenerateCovers;
-      state.status_text = MakeBootCoverText(0, state.cover_generate_queue.size());
+      state.status_text = LocalizedBootCoverText(state.language_index, 0, state.cover_generate_queue.size());
       if (state.cover_generate_queue.empty()) {
         state.phase = BootPhase::Finalize;
       }
@@ -197,7 +195,8 @@ void TickBootRuntime(BootRuntimeState &state, float dt, const BootRuntimeTickDep
       ++state.cover_generate_index;
       ++processed;
     }
-    state.status_text = MakeBootCoverText(state.cover_generate_index, state.cover_generate_queue.size());
+    state.status_text =
+        LocalizedBootCoverText(state.language_index, state.cover_generate_index, state.cover_generate_queue.size());
     if (state.cover_generate_index >= state.cover_generate_queue.size()) {
       state.phase = BootPhase::Finalize;
     }
@@ -221,8 +220,21 @@ void DrawBootRuntime(const BootRuntimeRenderDeps &deps) {
   deps.draw_rect(bar_x, bar_y, bar_w, 16, SDL_Color{255, 255, 255, 220}, false);
 #ifdef HAVE_SDL2_TTF
   const SDL_Color boot_text_color{232, 236, 244, 255};
-  if (!deps.state.status_text.empty() && deps.get_text_texture) {
-    if (TextCacheEntry *te = deps.get_text_texture(deps.state.status_text, boot_text_color); te && te->texture) {
+  std::string status_text = deps.state.status_text;
+  if (deps.state.phase == BootPhase::UpdateReplay) {
+    const float replay_ratio = std::clamp(deps.state.timer / kUpdateReplayDurationSec, 0.0f, 1.0f);
+    status_text = LocalizedUpdateReplayText(deps.language_index, replay_ratio, deps.state.update_replay_success,
+                                            deps.state.update_replay_version);
+  } else if (deps.state.phase == BootPhase::CountBooks || deps.state.phase == BootPhase::ScanBooks) {
+    const size_t current = deps.state.phase == BootPhase::ScanBooks ? deps.state.scan_index : 0;
+    status_text = LocalizedBootScanText(deps.language_index, current, deps.state.total_books);
+  } else if (deps.state.phase == BootPhase::GenerateCovers || deps.state.phase == BootPhase::Finalize ||
+             deps.state.phase == BootPhase::Done) {
+    status_text =
+        LocalizedBootCoverText(deps.language_index, deps.state.cover_generate_index, deps.state.cover_generate_queue.size());
+  }
+  if (!status_text.empty() && deps.get_text_texture) {
+    if (TextCacheEntry *te = deps.get_text_texture(status_text, boot_text_color); te && te->texture) {
       SDL_Rect td{std::max(0, (deps.screen_w - te->w) / 2), bar_y + 28, te->w, te->h};
       SDL_RenderCopy(deps.renderer, te->texture, nullptr, &td);
     }

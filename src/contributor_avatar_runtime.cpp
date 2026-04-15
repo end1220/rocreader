@@ -1,5 +1,6 @@
 #include "contributor_avatar_runtime.h"
 
+#include "app_language.h"
 #include "sdl_utils.h"
 
 #include <algorithm>
@@ -240,7 +241,7 @@ void DestroyContributorAvatarEntries(std::vector<ContributorAvatarEntry> &entrie
 }
 
 void LoadContributorAvatarEntries(std::vector<ContributorAvatarEntry> &entries, const std::filesystem::path &ui_root,
-                                  const std::filesystem::path &exe_path, SDL_Renderer *renderer,
+                                  const std::filesystem::path &exe_path, SDL_Renderer *renderer, int language_index,
                                   const std::function<SDL_Surface *(const void *, size_t)> &load_surface_from_memory,
                                   const std::function<void(SDL_Texture *, int, int)> &remember_texture_size,
                                   const std::function<void(SDL_Texture *)> &before_destroy) {
@@ -365,7 +366,12 @@ void LoadContributorAvatarEntries(std::vector<ContributorAvatarEntry> &entries, 
         rank_frames.erase(rank_it);
       }
     }
-    entries.push_back(ContributorAvatarEntry{texture, rank_frame, candidate.label});
+    entries.push_back(ContributorAvatarEntry{
+        texture,
+        rank_frame,
+        candidate.label,
+        LocalizeContributionLabel(language_index, candidate.label),
+    });
   }
 
   if (has_max_candidates) {
@@ -538,8 +544,11 @@ void DrawContributorAvatarPreview(const ContributorAvatarRenderDeps &deps) {
     }
 
 #ifdef HAVE_SDL2_TTF
-    if (deps.get_text_texture && !deps.entries[i].label.empty()) {
-      TextCacheEntry *label_tex = deps.get_text_texture(deps.entries[i].label, SDL_Color{235, 241, 248, 255});
+    const std::string display_label =
+        deps.entries[i].raw_label.empty() ? deps.entries[i].label
+                                          : LocalizeContributionLabel(deps.language_index, deps.entries[i].raw_label);
+    if (deps.get_text_texture && !display_label.empty()) {
+      TextCacheEntry *label_tex = deps.get_text_texture(display_label, SDL_Color{235, 241, 248, 255});
       if (label_tex && label_tex->texture) {
         SDL_Rect label_clip{label_x, label_y, label_w, name_h};
         SDL_RenderSetClipRect(deps.renderer, &label_clip);

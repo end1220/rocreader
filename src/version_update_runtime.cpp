@@ -1,4 +1,5 @@
 #include "version_update_runtime.h"
+#include "app_language.h"
 
 #include <algorithm>
 #include <array>
@@ -706,20 +707,29 @@ void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {
   DrawCenteredText(deps.renderer,
                    deps.preview_rect,
                    deps.get_emphasis_text_texture ? deps.get_emphasis_text_texture : deps.get_text_texture,
-                   std::string(u8"\u5f53\u524d\u7248\u672c ") + deps.state.current_version,
+                   std::string(LocalizedAppText(deps.language_index, AppTextId::VersionCurrentVersion)) + " " +
+                       deps.state.current_version,
                    text_color,
                    line1_y);
 
+  TextCacheEntry *button_text_entry = deps.get_text_texture
+                                          ? deps.get_text_texture(
+                                                std::string(LocalizedAppText(deps.language_index, AppTextId::VersionCheckAndUpdate)),
+                                                text_color)
+                                          : nullptr;
+  const int button_width =
+      std::max(kButtonWidth, (button_text_entry ? button_text_entry->w : 0) + 36);
+  const int button_right = center_x + kButtonWidth / 2;
   const bool button_selected = deps.state.panel_active && !deps.state.download_in_progress;
-  const int button_x = center_x - kButtonWidth / 2;
+  const int button_x = button_right - button_width;
   const int button_y = line2_y - kButtonHeight / 2;
-  deps.draw_rect(button_x, button_y, kButtonWidth, kButtonHeight,
+  deps.draw_rect(button_x, button_y, button_width, kButtonHeight,
                  button_selected ? button_active : button_fill, true);
-  deps.draw_rect(button_x, button_y, kButtonWidth, kButtonHeight, button_border, false);
+  deps.draw_rect(button_x, button_y, button_width, kButtonHeight, button_border, false);
   DrawCenteredText(deps.renderer,
-                   SDL_Rect{button_x, button_y, kButtonWidth, kButtonHeight},
+                   SDL_Rect{button_x, button_y, button_width, kButtonHeight},
                    deps.get_text_texture,
-                   std::string(u8"\u68c0\u6d4b\u5e76\u66f4\u65b0"),
+                   std::string(LocalizedAppText(deps.language_index, AppTextId::VersionCheckAndUpdate)),
                    text_color,
                    line2_y);
 
@@ -728,7 +738,7 @@ void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     std::string(u8"\u6309 A \u5f00\u59cb\u68c0\u67e5\u66f4\u65b0"),
+                     std::string(LocalizedAppText(deps.language_index, AppTextId::VersionPressAToCheck)),
                      muted_color,
                      line3_y);
     break;
@@ -736,7 +746,7 @@ void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     std::string(u8"\u6ca1\u6709\u68c0\u6d4b\u5230\u7f51\u7edc\u8fde\u63a5"),
+                     std::string(LocalizedAppText(deps.language_index, AppTextId::VersionNoNetwork)),
                      muted_color,
                      line3_y);
     break;
@@ -752,14 +762,14 @@ void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     std::string(u8"\u68c0\u6d4b\u5230\u66f4\u65b0\uff0c\u6b63\u5728\u4e0b\u8f7d ")
+                     std::string(LocalizedAppText(deps.language_index, AppTextId::VersionDownloading)) + " "
                          + std::to_string(deps.state.download_progress_pct) + "%",
                      text_color,
                      line3_y - 20);
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     FormatDownloadSpeed(deps.state.download_speed_bytes_per_sec),
+                     LocalizedDownloadSpeedText(deps.language_index, deps.state.download_speed_bytes_per_sec),
                      muted_color,
                      line4_y);
     break;
@@ -768,13 +778,13 @@ void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     std::string(u8"\u5df2\u4e0b\u8f7d\u5b89\u88c5\u5305"),
+                     std::string(LocalizedAppText(deps.language_index, AppTextId::VersionDownloadedPackage)),
                      success_color,
                      line3_y);
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     std::string(u8"\u91cd\u542f\u5b89\u88c5"),
+                     std::string(LocalizedAppText(deps.language_index, AppTextId::VersionRestartToInstall)),
                      success_color,
                      line4_y);
     break;
@@ -782,7 +792,7 @@ void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     std::string(u8"\u5df2\u662f\u6700\u65b0\u7248\u672c"),
+                     std::string(LocalizedAppText(deps.language_index, AppTextId::VersionAlreadyLatest)),
                      muted_color,
                      line3_y);
     break;
@@ -790,7 +800,7 @@ void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {
     DrawCenteredText(deps.renderer,
                      deps.preview_rect,
                      deps.get_text_texture,
-                     std::string(u8"\u4e0b\u8f7d\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5"),
+                     std::string(LocalizedAppText(deps.language_index, AppTextId::VersionDownloadFailed)),
                      muted_color,
                      line3_y);
     break;

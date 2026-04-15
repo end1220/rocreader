@@ -13,6 +13,7 @@
 struct ContributorAvatarEntry {
   SDL_Texture *texture = nullptr;
   SDL_Texture *rank_frame = nullptr;
+  std::string raw_label;
   std::string label;
 };
 
@@ -31,6 +32,7 @@ struct ContributorAvatarRenderDeps {
   SDL_Rect preview_rect{};
   const std::vector<ContributorAvatarEntry> &entries;
   const ContributorAvatarState &state;
+  int language_index = 0;
   std::function<void(int, int, int, int, SDL_Color, bool)> draw_rect;
   std::function<TextCacheEntry *(const std::string &, SDL_Color)> get_text_texture;
 };
@@ -38,7 +40,7 @@ struct ContributorAvatarRenderDeps {
 void DestroyContributorAvatarEntries(std::vector<ContributorAvatarEntry> &entries,
                                      const std::function<void(SDL_Texture *)> &before_destroy = {});
 void LoadContributorAvatarEntries(std::vector<ContributorAvatarEntry> &entries, const std::filesystem::path &ui_root,
-                                  const std::filesystem::path &exe_path, SDL_Renderer *renderer,
+                                  const std::filesystem::path &exe_path, SDL_Renderer *renderer, int language_index,
                                   const std::function<SDL_Surface *(const void *, size_t)> &load_surface_from_memory,
                                   const std::function<void(SDL_Texture *, int, int)> &remember_texture_size,
                                   const std::function<void(SDL_Texture *)> &before_destroy = {});

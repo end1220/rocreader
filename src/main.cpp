@@ -841,6 +841,7 @@ int main(int, char **) {
     return {};
   };
   LoadContributorAvatarEntries(contributor_avatar_entries, resolve_ui_root(), exe_path, renderer,
+                               0,
                                LoadSurfaceFromMemory, remember_texture_size, forget_texture_size);
   SDL_Texture *selected_avatar_badge_texture = nullptr;
   auto destroy_selected_avatar_badge_texture = [&]() {
@@ -862,12 +863,12 @@ int main(int, char **) {
     if (contributor_avatar_entries.empty()) return 0;
     int default_index = 0;
     for (size_t i = 0; i < contributor_avatar_entries.size(); ++i) {
-      if (contributor_avatar_entries[i].label == u8"BloodROC_贡献值MAX") {
+      if (contributor_avatar_entries[i].raw_label == u8"BloodROC_贡献值MAX") {
         return static_cast<int>(i);
       }
     }
     for (size_t i = 0; i < contributor_avatar_entries.size(); ++i) {
-      if (contributor_avatar_entries[i].label.find(u8"贡献值MAX") != std::string::npos) {
+      if (contributor_avatar_entries[i].raw_label.find(u8"贡献值MAX") != std::string::npos) {
         return static_cast<int>(i);
       }
     }
@@ -965,6 +966,7 @@ int main(int, char **) {
   LidPowerController lid_power_controller(power_script_path);
   SystemSettingsState system_settings_state{};
   system_settings_state.auto_sleep_interval_index = std::clamp(config.Get().auto_sleep_interval_index, 0, 4);
+  system_settings_state.system_language_index = SystemLanguageIndexFromConfigValue(config.Get().system_language);
   TxtSettingsState txt_settings_state{};
   txt_settings_state.background_color = ClampTxtColorIndex(config.Get().txt_background_color);
   txt_settings_state.font_color = ClampTxtColorIndex(config.Get().txt_font_color);
@@ -1077,6 +1079,7 @@ int main(int, char **) {
     std::error_code ec;
     const std::filesystem::path boot_status_path =
         std::filesystem::current_path(ec) / "cache" / "update_boot_status.txt";
+    boot_runtime.language_index = SystemLanguageIndexFromConfigValue(config.Get().system_language);
     if (!ec) InitializeBootRuntimeReplay(boot_runtime, boot_status_path);
   }
   std::vector<BookItem> &shelf_items = shelf_runtime.items;
@@ -2017,6 +2020,7 @@ int main(int, char **) {
               [&](SystemSettingsState &settings_state) {
                 settings_state.lid_close_screen_off_enabled = config.Get().lid_close_screen_off;
                 settings_state.auto_sleep_interval_index = std::clamp(config.Get().auto_sleep_interval_index, 0, 4);
+                settings_state.system_language_index = SystemLanguageIndexFromConfigValue(config.Get().system_language);
               },
               [&](bool enabled, SystemSettingsState &settings_state) {
                 NativeConfig &cfg = config.Mutable();
@@ -2038,6 +2042,22 @@ int main(int, char **) {
                 settings_state.auto_sleep_interval_index = next_index;
                 last_user_input_tick = SDL_GetTicks();
                 auto_sleep_waiting_for_input = false;
+                return true;
+              },
+              [&](int delta, SystemSettingsState &settings_state) {
+                const int language_count = std::max(1, SystemLanguageCount());
+                int next_index = settings_state.system_language_index;
+                if (delta > 0) {
+                  next_index = (next_index + 1) % language_count;
+                } else if (delta < 0) {
+                  next_index = (next_index - 1 + language_count) % language_count;
+                }
+                if (next_index == settings_state.system_language_index) return false;
+                config.Mutable().system_language = SystemLanguageConfigValue(next_index);
+                config.MarkDirty();
+                config.Save();
+                settings_state.system_language_index = next_index;
+                last_user_input_tick = SDL_GetTicks();
                 return true;
               },
               [&]() {
@@ -2361,6 +2381,7 @@ int main(int, char **) {
       BootRuntimeRenderDeps boot_render_deps{
           renderer,
           boot_runtime,
+          SystemLanguageIndexFromConfigValue(config.Get().system_language),
           Layout().screen_w,
           Layout().screen_h,
           [&](int x, int y, int w, int h, SDL_Color c, bool filled) { DrawRect(renderer, x, y, w, h, c, filled); },
@@ -2369,6 +2390,7 @@ int main(int, char **) {
       DrawBootRuntime(boot_render_deps);
     } else {
       const NativeConfig &cfg = config.Get();
+      boot_runtime.language_index = SystemLanguageIndexFromConfigValue(cfg.system_language);
       const SDL_Color bg = (cfg.theme == 0) ? SDL_Color{22, 23, 29, 255} : SDL_Color{238, 237, 233, 255};
       DrawRect(renderer, 0, 0, Layout().screen_w, Layout().screen_h, bg);
 
@@ -2649,6 +2671,7 @@ int main(int, char **) {
             renderer,
             ui_assets,
             cfg,
+            use_h700_34xx_keymap,
             menu_items,
             menu_selected,
             menu_anim,
@@ -2674,6 +2697,7 @@ int main(int, char **) {
             get_texture_size,
             get_text_texture,
             get_title_text_texture,
+            get_reader_text_texture,
             Utf8Ellipsize,
             draw_volume_overlay,
         };

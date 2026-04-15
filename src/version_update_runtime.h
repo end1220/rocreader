@@ -54,6 +54,7 @@ struct VersionUpdateRenderDeps {
   SDL_Rect preview_rect{};
   const VersionUpdateState &state;
   bool light_theme = false;
+  int language_index = 0;
   std::function<void(int, int, int, int, SDL_Color, bool)> draw_rect;
   std::function<TextCacheEntry *(const std::string &, SDL_Color)> get_text_texture;
   std::function<TextCacheEntry *(const std::string &, SDL_Color)> get_emphasis_text_texture;

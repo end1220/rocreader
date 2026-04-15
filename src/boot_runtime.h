@@ -15,6 +15,7 @@ enum class BootPhase { UpdateReplay, CountBooks, ScanBooks, GenerateCovers, Fina
 struct BootRuntimeState {
   float timer = 0.0f;
   BootPhase phase = BootPhase::CountBooks;
+  int language_index = 0;
   std::vector<BookItem> scanned_books;
   size_t scan_index = 0;
   std::vector<std::string> cover_generate_queue;
@@ -47,6 +48,7 @@ struct BootRuntimeTickDeps {
 struct BootRuntimeRenderDeps {
   SDL_Renderer *renderer = nullptr;
   const BootRuntimeState &state;
+  int language_index = 0;
   int screen_w = 0;
   int screen_h = 0;
   std::function<void(int, int, int, int, SDL_Color, bool)> draw_rect;

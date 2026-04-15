@@ -13,6 +13,7 @@ struct NativeConfig {
   bool audio = true;
   int sfx_volume = 64;
   std::string screen_profile;
+  std::string system_language = "zh";
   int system_volume_percent = 50;
   int screen_brightness_level = 8;
   bool lid_close_screen_off = true;

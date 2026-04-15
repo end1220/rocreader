@@ -1,4 +1,5 @@
 #include "txt_settings_runtime.h"
+#include "app_language.h"
 
 #include <algorithm>
 #include <array>
@@ -170,7 +171,6 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
   const int color_block_h = button_h;
   const int color_gap = 8;
   const int label_control_gap = 18;
-  const int transcode_button_w = 82;
   const int transcode_button_h = 28;
   const int number_w = 30;
 
@@ -182,10 +182,10 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
                  true);
 
   const std::array<const char *, 4> labels = {{
-      u8"\u80cc\u666f\u989c\u8272",
-      u8"\u5b57\u4f53\u989c\u8272",
-      u8"\u5b57\u53f7\u5927\u5c0f",
-      u8"TXT\u8f6c\u7801",
+      LocalizedAppText(deps.language_index, AppTextId::TxtBackgroundColor),
+      LocalizedAppText(deps.language_index, AppTextId::TxtFontColor),
+      LocalizedAppText(deps.language_index, AppTextId::TxtFontSize),
+      LocalizedAppText(deps.language_index, AppTextId::TxtTranscode),
   }};
   const std::array<int, 4> row_centers = {{row_center0, row_center1, row_center2, row_center3}};
 
@@ -198,6 +198,14 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
 
   const int color_controls_w = kColorOptionCount * color_block_w + (kColorOptionCount - 1) * color_gap;
   const int font_controls_w = button_w + 10 + number_w + 10 + button_w;
+  const int min_transcode_button_w = 82;
+  const int transcode_button_padding = 18;
+  const int transcode_button_w =
+      std::max(min_transcode_button_w,
+               (get_text_entry(LocalizedAppText(deps.language_index, AppTextId::TxtStartTranscode), text_color)
+                        ? get_text_entry(LocalizedAppText(deps.language_index, AppTextId::TxtStartTranscode), text_color)->w
+                        : 0) +
+                   transcode_button_padding * 2);
   const int transcode_controls_w = transcode_button_w;
   const int max_controls_w = std::max({color_controls_w, font_controls_w, transcode_controls_w});
   const int content_w = max_label_w + label_control_gap + max_controls_w;
@@ -272,7 +280,9 @@ void DrawTxtSettingsPreview(const TxtSettingsRenderDeps &deps) {
                  transcode_selected ? button_selected : button_fill, true);
   deps.draw_rect(transcode_button_x, transcode_button_y, transcode_button_w, transcode_button_h,
                  transcode_selected ? button_border : muted_color, false);
-  if (TextCacheEntry *entry = get_text_entry(u8"\u5f00\u59cb\u8f6c\u7801", text_color); entry && entry->texture) {
+  if (TextCacheEntry *entry =
+          get_text_entry(LocalizedAppText(deps.language_index, AppTextId::TxtStartTranscode), text_color);
+      entry && entry->texture) {
     SDL_Rect dst{transcode_button_x + (transcode_button_w - entry->w) / 2,
                  row_center3 - entry->h / 2,
                  entry->w,

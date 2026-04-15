@@ -1,6 +1,7 @@
 #pragma once
 
 #include "input_manager.h"
+#include "app_language.h"
 #include "system_controls.h"
 #include "ui_text_cache.h"
 
@@ -14,6 +15,7 @@ struct SystemSettingsState {
   int selected_button = 0;
   bool lid_close_screen_off_enabled = true;
   int auto_sleep_interval_index = 2;
+  int system_language_index = 0;
   SystemControlLevels levels;
 };
 
@@ -24,6 +26,7 @@ struct SystemSettingsCallbacks {
   std::function<void(SystemSettingsState &)> refresh_lid_close_state;
   std::function<bool(bool, SystemSettingsState &)> set_lid_close_state;
   std::function<bool(int, SystemSettingsState &)> adjust_auto_sleep_interval;
+  std::function<bool(int, SystemSettingsState &)> adjust_system_language;
   std::function<bool()> clear_cache;
   std::function<bool()> clear_history;
 };

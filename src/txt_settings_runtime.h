@@ -32,6 +32,7 @@ struct TxtSettingsRenderDeps {
   const TxtSettingsState &state;
   const TxtTranscodeJob &txt_transcode_job;
   bool light_theme = false;
+  int language_index = 0;
   int first_row_y = 0;
   int row_pitch = 42;
   int row_height = 30;

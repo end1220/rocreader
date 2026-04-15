@@ -62,6 +62,7 @@ struct SettingsRuntimeRenderDeps {
   SDL_Renderer *renderer = nullptr;
   UiAssets &ui_assets;
   const NativeConfig &cfg;
+  bool use_h700_34xx_keymap = false;
   const std::vector<SettingId> &menu_items;
   int menu_selected = 0;
   animation::TweenFloat &menu_anim;
@@ -77,6 +78,7 @@ struct SettingsRuntimeRenderDeps {
   std::function<void(SDL_Texture *, int &, int &)> get_texture_size;
   std::function<TextCacheEntry *(const std::string &, SDL_Color)> get_text_texture;
   std::function<TextCacheEntry *(const std::string &, SDL_Color)> get_title_text_texture;
+  std::function<TextCacheEntry *(const std::string &, SDL_Color)> get_reader_text_texture;
   std::function<std::string(const std::string &, size_t)> utf8_ellipsize;
   std::function<void()> draw_volume_overlay;
 };
