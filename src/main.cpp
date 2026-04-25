@@ -2573,13 +2573,14 @@ int main(int, char **argv) {
           }
 
             const int center_y = Layout().top_bar_y + Layout().top_bar_h / 2;
-            const int battery_shift_y = ScalePx(3);
-            const int battery_shift_x = (input_profile == InputProfile::TrimuiBrick) ? 133 : 0;
-            const int battery_icon_x = ScalePx(552) - battery_shift_x;
-            const int battery_text_x = ScalePx(587) - battery_shift_x;
-            const int clock_shift_x = ScalePx(40);
-            const int clock_shift_y = ScalePx(3);
-            int clock_right = Layout().screen_w - ScalePx(16) - clock_shift_x;
+            const bool trimui_brick_status_layout = input_profile == InputProfile::TrimuiBrick;
+            const int battery_shift_y = trimui_brick_status_layout ? 5 : 3;
+            const int h700_battery_shift_x = (Layout().screen_w <= 640) ? -80 : 0;
+            const int battery_icon_x = trimui_brick_status_layout ? 750 : 552 + h700_battery_shift_x;
+            const int battery_text_x = trimui_brick_status_layout ? 806 : 587 + h700_battery_shift_x;
+            const int clock_shift_x = trimui_brick_status_layout ? 64 : 40;
+            const int clock_shift_y = trimui_brick_status_layout ? 5 : 3;
+            int clock_right = Layout().screen_w - (trimui_brick_status_layout ? 26 : 16) - clock_shift_x;
 
           if (!status.clock_text.empty()) {
             TextCacheEntry *clock_tex = get_text_texture(status.clock_text, text_color);

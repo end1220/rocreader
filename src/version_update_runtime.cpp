@@ -21,6 +21,7 @@ constexpr int kProgressBarWidth = 228;
 constexpr int kProgressBarHeight = 16;
 constexpr const char *kGithubContentsApi =
     "https://api.github.com/repos/LPF970915/ROCreader/contents/Downloads?ref=main";
+constexpr const char *kUpdateContentsUrlEnv = "ROCREADER_UPDATE_CONTENTS_URL";
 constexpr const char *kPendingMarkerFilename = "ROCreader_update_pending.txt";
 constexpr const char *kUserAgent = "ROCreader-Updater";
 constexpr const char *kDownloadTempFilename = "ROCreader_update_download.tmp";
@@ -73,6 +74,38 @@ std::string ToLowerAscii(std::string text) {
   std::transform(text.begin(), text.end(), text.begin(),
                  [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
   return text;
+}
+
+std::string ResolveGithubContentsUrl() {
+  const char *env_url = std::getenv(kUpdateContentsUrlEnv);
+  if (!env_url || !*env_url) return kGithubContentsApi;
+
+  const std::string url = env_url;
+  const std::string tree_prefix = "https://github.com/";
+  const std::string tree_marker = "/tree/";
+  if (url.rfind(tree_prefix, 0) == 0) {
+    const std::string rest = url.substr(tree_prefix.size());
+    const size_t owner_end = rest.find('/');
+    if (owner_end != std::string::npos) {
+      const size_t repo_end = rest.find('/', owner_end + 1);
+      if (repo_end != std::string::npos) {
+        const size_t tree_pos = rest.find(tree_marker, repo_end);
+        if (tree_pos != std::string::npos) {
+          const size_t branch_start = tree_pos + tree_marker.size();
+          const size_t branch_end = rest.find('/', branch_start);
+          if (branch_end != std::string::npos) {
+            const std::string owner = rest.substr(0, owner_end);
+            const std::string repo = rest.substr(owner_end + 1, repo_end - owner_end - 1);
+            const std::string branch = rest.substr(branch_start, branch_end - branch_start);
+            const std::string path = rest.substr(branch_end + 1);
+            return "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path + "?ref=" + branch;
+          }
+        }
+      }
+    }
+  }
+
+  return url;
 }
 
 bool TryExtractVersionToken(const std::string &filename, std::string &out_version) {
@@ -365,8 +398,9 @@ struct RemoteArchiveInfo {
 };
 
 bool FetchLatestRemoteArchive(RemoteArchiveInfo &out_info) {
-  const std::string json = HttpGetText(kGithubContentsApi);
-  AppendUpdateLog("Fetched GitHub contents metadata bytes=" + std::to_string(json.size()));
+  const std::string contents_url = ResolveGithubContentsUrl();
+  const std::string json = HttpGetText(contents_url);
+  AppendUpdateLog("Fetched GitHub contents metadata url=" + contents_url + " bytes=" + std::to_string(json.size()));
   if (json.empty()) return false;
 
   size_t search_pos = 0;
