@@ -576,6 +576,15 @@ bool WritePendingMarker(const VersionUpdateState &state) {
 
 void JoinDownloadThread(VersionUpdateState &state) {
   if (state.download_thread.joinable()) state.download_thread.join();
+  state.download_thread_state.reset();
+}
+
+void ReleaseDownloadThreadWithoutBlocking(VersionUpdateState &state) {
+  if (state.download_thread.joinable()) {
+    state.download_thread.detach();
+    AppendUpdateLog("Detached active download thread during shutdown to avoid blocking exit.");
+  }
+  state.download_thread_state.reset();
 }
 
 bool BeginVersionUpdateDownloadInternal(VersionUpdateState &state) {
@@ -648,6 +657,7 @@ bool BeginVersionUpdateDownloadInternal(VersionUpdateState &state) {
 
   state.download_thread_done = false;
   state.download_thread_success = false;
+  state.download_thread_state = std::make_shared<VersionUpdateDownloadThreadState>();
   state.download_progress_pct = 0;
   state.last_observed_download_bytes = 0;
   state.download_speed_bytes_per_sec = 0.0;
@@ -659,8 +669,9 @@ bool BeginVersionUpdateDownloadInternal(VersionUpdateState &state) {
   const std::string download_api_url = state.active_download_api_url;
   const std::filesystem::path temp_path = state.temp_package_path;
   const std::filesystem::path final_path = state.pending_package_path;
+  const std::shared_ptr<VersionUpdateDownloadThreadState> thread_state = state.download_thread_state;
 
-  state.download_thread = std::thread([download_url, download_api_url, temp_path, final_path, &state]() {
+  state.download_thread = std::thread([download_url, download_api_url, temp_path, final_path, thread_state]() {
     bool success = DownloadFile(download_url, temp_path);
     if (success && !LooksLikeZipFile(temp_path)) {
       AppendUpdateLog("Downloaded file is not a zip; trying fallback URL.");
@@ -694,8 +705,10 @@ bool BeginVersionUpdateDownloadInternal(VersionUpdateState &state) {
       std::error_code remove_ec;
       std::filesystem::remove(temp_path, remove_ec);
     }
-    state.download_thread_success = success;
-    state.download_thread_done = true;
+    if (thread_state) {
+      thread_state->success = success;
+      thread_state->done = true;
+    }
   });
 
   return true;
@@ -784,6 +797,10 @@ void TickVersionUpdateState(VersionUpdateState &state, float dt) {
     }
   }
 
+  if (state.download_thread_state) {
+    state.download_thread_done = state.download_thread_state->done.load();
+    state.download_thread_success = state.download_thread_state->success.load();
+  }
   if (!state.download_thread_done) return;
 
   JoinDownloadThread(state);
@@ -805,7 +822,11 @@ void TickVersionUpdateState(VersionUpdateState &state, float dt) {
 }
 
 void ShutdownVersionUpdateState(VersionUpdateState &state) {
-  JoinDownloadThread(state);
+  if (state.download_thread.joinable() && state.download_thread_done.load()) {
+    JoinDownloadThread(state);
+    return;
+  }
+  ReleaseDownloadThreadWithoutBlocking(state);
 }
 
 void DrawVersionUpdatePreview(const VersionUpdateRenderDeps &deps) {

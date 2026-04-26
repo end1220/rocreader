@@ -32,6 +32,8 @@ struct TxtReaderSessionDeps {
 };
 
 bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps);
+bool OpenTextBufferSession(const std::string &path, std::string raw, uintmax_t logical_size,
+                           long long logical_mtime, TxtReaderSessionDeps &deps);
 void FinalizeTextReaderLoading(TxtReaderState &state, const std::string *cache_key, TxtReaderSessionDeps &deps);
 void ProcessTextLayoutChunk(TxtReaderState &state, uint32_t budget_ms, size_t byte_budget,
                             const std::string *cache_key, TxtReaderSessionDeps &deps);

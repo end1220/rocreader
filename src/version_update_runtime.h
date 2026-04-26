@@ -10,6 +10,7 @@
 #include <cstdint>
 #include "filesystem_compat.h"
 #include <functional>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -20,6 +21,11 @@ enum class VersionUpdateStatus {
   Downloaded,
   UpToDate,
   DownloadFailed,
+};
+
+struct VersionUpdateDownloadThreadState {
+  std::atomic<bool> done = false;
+  std::atomic<bool> success = false;
 };
 
 struct VersionUpdateState {
@@ -42,6 +48,7 @@ struct VersionUpdateState {
   std::string active_download_url;
   std::string active_download_api_url;
   std::thread download_thread;
+  std::shared_ptr<VersionUpdateDownloadThreadState> download_thread_state;
   std::atomic<bool> download_thread_done = false;
   std::atomic<bool> download_thread_success = false;
 };

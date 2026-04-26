@@ -1,9 +1,10 @@
 #include "epub_cover_cache.h"
 
 #include "epub_reader.h"
+#include "image_decode.h"
+#include "runtime_log.h"
 
 #include <SDL.h>
-
 #include "filesystem_compat.h"
 #include <sstream>
 #include <string>
@@ -62,7 +63,10 @@ SDL_Texture *CreateEpubFirstImageCoverTexture(const std::string &doc_path,
   EpubReader epub;
   EpubReader::CoverImage cover_image;
   std::string error;
-  if (!epub.ExtractCoverImage(doc_path, cover_image, error)) return nullptr;
+  if (!epub.ExtractCoverImage(doc_path, cover_image, error)) {
+    runtime_log::Line("[epub_cover] extract failed path=" + doc_path + " error=" + error);
+    return nullptr;
+  }
 
   if (SDL_Texture *cached =
           LoadCachedEpubCoverTexture(doc_path, cover_image.logical_size, cover_image.logical_mtime, deps)) {
@@ -71,7 +75,11 @@ SDL_Texture *CreateEpubFirstImageCoverTexture(const std::string &doc_path,
 
   SDL_Surface *cover_surface =
       deps.load_surface_from_memory(cover_image.bytes.data(), cover_image.bytes.size());
-  if (!cover_surface) return nullptr;
+  if (!cover_surface) cover_surface = DecodeSurfaceFromMemory(cover_image.bytes.data(), cover_image.bytes.size());
+  if (!cover_surface) {
+    runtime_log::Line("[epub_cover] decode surface failed path=" + doc_path);
+    return nullptr;
+  }
   SDL_Texture *normalized =
       deps.create_normalized_cover_texture(deps.renderer, cover_surface, deps.cover_w, deps.cover_h,
                                            static_cast<float>(deps.cover_w) / static_cast<float>(deps.cover_h));

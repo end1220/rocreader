@@ -46,7 +46,8 @@ void TickAppUiState(AppUiState &state, float dt);
 void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t now,
                           VolumeController &volume_controller, ConfigStore &config,
                           const std::function<void(int)> &apply_sfx_volume,
-                          const std::function<void()> &play_change_sfx);
+                          const std::function<void()> &play_change_sfx,
+                          const std::function<void(uint32_t)> &schedule_change_sfx = {});
 MenuToggleAction HandleMenuToggleInput(AppUiState &state, const InputManager &input, bool is_settings,
                                        bool is_shelf, bool is_reader, bool settings_close_armed,
                                        float settings_toggle_guard, bool menu_closing, float debounce_sec,

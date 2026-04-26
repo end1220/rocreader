@@ -1,6 +1,7 @@
 #include "epub_runtime.h"
 
 #include "epub_comic_reader.h"
+#include "runtime_log.h"
 
 #include <SDL.h>
 
@@ -141,6 +142,8 @@ struct EpubRuntime::Impl {
   std::string path;
   int screen_w = 720;
   int screen_h = 480;
+  int max_texture_w = 0;
+  int max_texture_h = 0;
 
   EpubState target_state;
   EpubState display_state;
@@ -257,7 +260,19 @@ struct EpubRuntime::Impl {
       fit_scale = std::max(0.1f, static_cast<float>(screen_w) /
                                     static_cast<float>(std::max(1, page_w)));
     }
-    return std::max(kMinZoom, std::min(kMaxZoom, fit_scale * state.view.zoom));
+    float render_scale = std::max(kMinZoom, std::min(kMaxZoom, fit_scale * state.view.zoom));
+    const int max_w = max_texture_w > 0 ? max_texture_w : 0;
+    const int max_h = max_texture_h > 0 ? max_texture_h : 0;
+    if (max_w > 0 && max_h > 0) {
+      if (rotation == 90 || rotation == 270) {
+        render_scale = std::min(render_scale, static_cast<float>(max_w) / static_cast<float>(std::max(1, page_h)));
+        render_scale = std::min(render_scale, static_cast<float>(max_h) / static_cast<float>(std::max(1, page_w)));
+      } else {
+        render_scale = std::min(render_scale, static_cast<float>(max_w) / static_cast<float>(std::max(1, page_w)));
+        render_scale = std::min(render_scale, static_cast<float>(max_h) / static_cast<float>(std::max(1, page_h)));
+      }
+    }
+    return std::max(0.05f, render_scale);
   }
 
   int RenderedFlowExtent(const EpubState &state) const {
@@ -361,6 +376,7 @@ struct EpubRuntime::Impl {
     int raw_w = 0;
     int raw_h = 0;
     if (!reader.RenderPageRGBA(state.location.page_num, RenderScaleForState(state), rgba, raw_w, raw_h, cancel)) {
+      runtime_log::Line("[epub_runtime] render pixels failed page=" + std::to_string(state.location.page_num));
       return false;
     }
     int rotated_w = 0;
@@ -387,9 +403,15 @@ struct EpubRuntime::Impl {
       next = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
                                ready.texture_w, ready.texture_h);
     }
-    if (!next) return nullptr;
+    if (!next) {
+      runtime_log::Line("[epub_runtime] SDL_CreateTexture failed size=" + std::to_string(ready.texture_w) + "x" +
+                        std::to_string(ready.texture_h) + " err=" + SDL_GetError());
+      return nullptr;
+    }
     SDL_SetTextureBlendMode(next, SDL_BLENDMODE_BLEND);
     if (SDL_UpdateTexture(next, nullptr, ready.rgba.data(), ready.texture_w * 4) != 0) {
+      runtime_log::Line("[epub_runtime] SDL_UpdateTexture failed size=" + std::to_string(ready.texture_w) + "x" +
+                        std::to_string(ready.texture_h) + " err=" + SDL_GetError());
       SDL_DestroyTexture(next);
       return nullptr;
     }
@@ -687,6 +709,8 @@ struct EpubRuntime::Impl {
                                         raw_w,
                                         raw_h,
                                         &impl->cancel_requested)) {
+        runtime_log::Line("[epub_runtime] worker render failed page=" +
+                          std::to_string(task_state.location.page_num));
         SDL_LockMutex(impl->mutex);
         if (!prefetch && impl->target_serial == task_serial) {
           ready.ready = true;
@@ -881,8 +905,23 @@ bool EpubRuntime::Open(SDL_Renderer *renderer,
   impl_->renderer = renderer;
   impl_->screen_w = std::max(1, screen_w);
   impl_->screen_h = std::max(1, screen_h);
+  SDL_RendererInfo renderer_info{};
+  if (renderer && SDL_GetRendererInfo(renderer, &renderer_info) == 0) {
+    impl_->max_texture_w = renderer_info.max_texture_width;
+    impl_->max_texture_h = renderer_info.max_texture_height;
+  } else {
+    impl_->max_texture_w = 0;
+    impl_->max_texture_h = 0;
+  }
+  runtime_log::Line("[epub_runtime] open path=" + path + " screen=" + std::to_string(impl_->screen_w) + "x" +
+                    std::to_string(impl_->screen_h) + " max_texture=" +
+                    std::to_string(impl_->max_texture_w) + "x" + std::to_string(impl_->max_texture_h));
 
-  if (!impl_->reader.Open(path)) return false;
+  if (!impl_->reader.Open(path)) {
+    runtime_log::Line("[epub_runtime] reader open failed path=" + path);
+    return false;
+  }
+  runtime_log::Line("[epub_runtime] reader open ok pages=" + std::to_string(impl_->reader.PageCount()));
   impl_->path = path;
 
   impl_->target_state.view.zoom = std::max(kMinZoom, std::min(kMaxZoom, initial_progress.zoom));
@@ -893,11 +932,14 @@ bool EpubRuntime::Open(SDL_Renderer *renderer,
 
   RenderResult seed;
   if (!impl_->RenderPixelsForState(impl_->target_state, seed, nullptr)) {
+    runtime_log::Line("[epub_runtime] seed render failed path=" + path);
     impl_->reader.Close();
     impl_->path.clear();
     return false;
   }
   if (!impl_->InstallTexture(seed)) {
+    runtime_log::Line("[epub_runtime] seed texture install failed path=" + path + " size=" +
+                      std::to_string(seed.texture_w) + "x" + std::to_string(seed.texture_h));
     impl_->reader.Close();
     impl_->path.clear();
     return false;

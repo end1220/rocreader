@@ -1,4 +1,5 @@
 #include "sdl_utils.h"
+#include "image_decode.h"
 
 #include <SDL.h>
 #ifdef HAVE_SDL2_IMAGE
@@ -29,14 +30,7 @@ SDL_Surface *LoadSurfaceFromFile(const std::string &path) {
 }
 
 SDL_Surface *LoadSurfaceFromMemory(const void *data, size_t size) {
-  if (!data || size == 0) return nullptr;
-  SDL_RWops *rw = SDL_RWFromConstMem(data, static_cast<int>(size));
-  if (!rw) return nullptr;
-#ifdef HAVE_SDL2_IMAGE
-  return IMG_Load_RW(rw, 1);
-#else
-  return SDL_LoadBMP_RW(rw, 1);
-#endif
+  return DecodeSurfaceFromMemory(data, size);
 }
 
 SDL_Texture *CreateNormalizedCoverTexture(SDL_Renderer *renderer, SDL_Surface *src_surface, int cover_w,

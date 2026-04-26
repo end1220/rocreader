@@ -3,7 +3,15 @@
 #include <SDL.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
+
+namespace {
+bool SystemVolumeSfxFollowsHardware() {
+  const char *env = std::getenv("ROCREADER_SYSTEM_VOLUME_SFX_FOLLOWS_HARDWARE");
+  return env && (*env == '1' || *env == 'y' || *env == 'Y' || *env == 't' || *env == 'T');
+}
+} // namespace
 
 VolumeController::VolumeController(bool prefer_system) : prefer_system_(prefer_system), service_(prefer_system) {}
 
@@ -46,7 +54,8 @@ void TickAppUiState(AppUiState &state, float dt) {
 void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t now,
                           VolumeController &volume_controller, ConfigStore &config,
                           const std::function<void(int)> &apply_sfx_volume,
-                          const std::function<void()> &play_change_sfx) {
+                          const std::function<void()> &play_change_sfx,
+                          const std::function<void(uint32_t)> &schedule_change_sfx) {
   const bool vol_up_pressed = input.IsJustPressed(Button::VolUp) || input.IsRepeated(Button::VolUp);
   const bool vol_down_pressed = input.IsJustPressed(Button::VolDown) || input.IsRepeated(Button::VolDown);
   if (!vol_up_pressed && !vol_down_pressed) return;
@@ -79,7 +88,20 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
         config.MarkDirty();
       }
       state.volume_display_percent = system_percent;
-      if (cfg.audio && play_change_sfx) play_change_sfx();
+      if (apply_sfx_volume) {
+        const int sfx_volume = SystemVolumeSfxFollowsHardware()
+                                   ? SDL_MIX_MAXVOLUME
+                                   : std::clamp((clamped_percent * SDL_MIX_MAXVOLUME + 50) / 100, 0,
+                                                SDL_MIX_MAXVOLUME);
+        apply_sfx_volume(sfx_volume);
+      }
+      if (cfg.audio) {
+        if (schedule_change_sfx && SystemVolumeSfxFollowsHardware()) {
+          schedule_change_sfx(now + 90);
+        } else if (play_change_sfx) {
+          play_change_sfx();
+        }
+      }
     }
     state.volume_display_until = now + 1500;
     return;

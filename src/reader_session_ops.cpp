@@ -31,6 +31,9 @@ bool OpenReaderSession(const std::string &book_path, const std::string &ext, Rea
       }
     }
   } else if (ext == ".epub") {
+    if (deps.file_exists && !deps.file_exists(book_path)) {
+      std::cerr << "[reader][epub] file does not exist before open: " << book_path << "\n";
+    }
     EpubRuntimeProgress epub_progress;
     epub_progress.page = deps.ui.progress.page;
     epub_progress.rotation = deps.ui.progress.rotation;
@@ -48,6 +51,10 @@ bool OpenReaderSession(const std::string &book_path, const std::string &ext, Rea
                      "Please rebuild with libzip (pkg-config libzip) available.\n";
         deps.ui.warned_epub_backend = true;
       }
+    }
+    if (!opened) {
+      std::cerr << "[reader][epub] runtime open failed backend=" << deps.epub_runtime.BackendName()
+                << " path=" << book_path << "\n";
     }
   } else {
     std::cerr << "[reader] unsupported format for runtime reader: " << book_path << "\n";

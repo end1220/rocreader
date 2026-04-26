@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,7 @@ constexpr Uint32 kVisualRenderThrottleMs = 75;
 constexpr Uint32 kIdlePrefetchDelayMs = 220;
 constexpr int kDefaultMaxTextureDim = 4096;
 constexpr int64_t kSafeTexturePixelBudget = 5600000;
+constexpr int64_t kLowMemoryTexturePixelBudget = 3600000;
 
 bool PdfLowMemoryMode() {
   const char *env = std::getenv("ROCREADER_PDF_LOW_MEMORY");
@@ -285,9 +287,10 @@ struct PdfRuntime::Impl {
     }
 
     const int64_t total_pixels = ideal_final_w * ideal_final_h;
-    if (total_pixels > kSafeTexturePixelBudget && total_pixels > 0) {
+    const int64_t pixel_budget = PdfLowMemoryMode() ? kLowMemoryTexturePixelBudget : kSafeTexturePixelBudget;
+    if (total_pixels > pixel_budget && total_pixels > 0) {
       const double ratio =
-          std::sqrt(static_cast<double>(kSafeTexturePixelBudget) / static_cast<double>(total_pixels));
+          std::sqrt(static_cast<double>(pixel_budget) / static_cast<double>(total_pixels));
       safe_scale = std::min(safe_scale, ideal_scale * static_cast<float>(ratio));
     }
 
@@ -471,7 +474,6 @@ struct PdfRuntime::Impl {
   }
 
   bool ShouldCacheState(const PdfState &state) const {
-    if (PdfLowMemoryMode()) return false;
     return NormalizeRotation(state.view.rotation) == NormalizeRotation(target_state.view.rotation) &&
            std::abs(state.view.zoom - target_state.view.zoom) < 0.0005f;
   }
@@ -712,6 +714,16 @@ struct PdfRuntime::Impl {
         page_h = std::max(1, impl->screen_h);
       }
       const float render_scale = impl->SafeRenderScaleForPageMetrics(page_w, page_h, task_state.view);
+      const int64_t estimated_pixels = std::max<int64_t>(
+          1, static_cast<int64_t>(std::llround(static_cast<double>(page_w) * render_scale))) *
+          std::max<int64_t>(1, static_cast<int64_t>(std::llround(static_cast<double>(page_h) * render_scale)));
+      if (PdfLowMemoryMode()) {
+        std::cout << "[native_h700][pdf] render begin page=" << task_state.location.page_num
+                  << " prefetch=" << (prefetch ? "1" : "0")
+                  << " page_size=" << page_w << "x" << page_h
+                  << " scale=" << render_scale
+                  << " est_pixels=" << estimated_pixels << "\n";
+      }
 
       std::vector<unsigned char> rgba;
       int raw_w = 0;
@@ -736,6 +748,14 @@ struct PdfRuntime::Impl {
       int rotated_h = 0;
       std::vector<unsigned char> rotated =
           RotateRgba(rgba, raw_w, raw_h, task_state.view.rotation, rotated_w, rotated_h);
+      rgba.clear();
+      rgba.shrink_to_fit();
+      if (PdfLowMemoryMode()) {
+        std::cout << "[native_h700][pdf] render done page=" << task_state.location.page_num
+                  << " raw=" << raw_w << "x" << raw_h
+                  << " texture=" << rotated_w << "x" << rotated_h
+                  << " bytes=" << static_cast<unsigned long long>(rotated.size()) << "\n";
+      }
 
       SDL_LockMutex(impl->mutex);
       const bool obsolete = !impl->worker_running || impl->cancel_requested.load() ||
@@ -1057,6 +1077,8 @@ void PdfRuntime::Tick() {
 
   if (ready.prefetch) {
     SDL_Texture *texture = impl_->CreateTextureFromResult(ready);
+    ready.rgba.clear();
+    ready.rgba.shrink_to_fit();
     if (texture) {
       impl_->StoreTextureInCache(texture, ready.texture_w, ready.texture_h, ready.state);
     }
@@ -1072,6 +1094,8 @@ void PdfRuntime::Tick() {
     impl_->display_state = impl_->ready_state;
     impl_->display_valid = true;
   }
+  ready.rgba.clear();
+  ready.rgba.shrink_to_fit();
   SDL_LockMutex(impl_->mutex);
   impl_->SchedulePrefetchLocked();
   SDL_UnlockMutex(impl_->mutex);

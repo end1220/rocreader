@@ -995,6 +995,13 @@ int main(int, char **argv) {
       std::filesystem::path("/mnt/mmc/cache/cover_thumbs");
   std::filesystem::path removable_cover_thumb_cache_dir =
       std::filesystem::path("/mnt/sdcard/cache/cover_thumbs");
+  if (const char *env_cache = std::getenv("ROCREADER_CACHE_ROOT"); env_cache && *env_cache) {
+    const std::filesystem::path cache_root(env_cache);
+    txt_layout_cache_dir = cache_root / "txt_layouts";
+    removable_txt_layout_cache_dir = cache_root / "txt_layouts";
+    cover_thumb_cache_dir = cache_root / "cover_thumbs";
+    removable_cover_thumb_cache_dir = cache_root / "cover_thumbs";
+  }
   {
     std::error_code ec;
     std::filesystem::create_directories(txt_layout_cache_dir, ec);
@@ -1148,21 +1155,32 @@ int main(int, char **argv) {
   SfxBank sfx;
   bool sfx_ready = false;
   bool sfx_init_attempted = false;
-  sfx.SetVolume(config.Get().sfx_volume);
+  bool pending_volume_change_sfx = false;
+  uint32_t pending_volume_change_sfx_due = 0;
+  const char *system_volume_sfx_env = std::getenv("ROCREADER_SYSTEM_VOLUME_SFX_FOLLOWS_HARDWARE");
+  const bool system_volume_sfx_follows_hardware =
+      system_volume_sfx_env && (*system_volume_sfx_env == '1' || *system_volume_sfx_env == 'y' ||
+                                *system_volume_sfx_env == 'Y' || *system_volume_sfx_env == 't' ||
+                                *system_volume_sfx_env == 'T');
+  int runtime_sfx_volume = config.Get().sfx_volume;
+  if (volume_controller.UsesSystemVolume() && system_volume_sfx_follows_hardware) {
+    runtime_sfx_volume = SDL_MIX_MAXVOLUME;
+  }
+  sfx.SetVolume(runtime_sfx_volume);
   auto ensure_sfx_ready = [&]() -> bool {
     if (sfx_ready) return true;
     if (sfx_init_attempted) return false;
     sfx_init_attempted = true;
     sfx_ready = sfx.Init(exe_path);
     if (sfx_ready) {
-      sfx.SetVolume(config.Get().sfx_volume);
+      sfx.SetVolume(runtime_sfx_volume);
     }
     if (!sfx_ready) {
       std::cout << "[native_h700] sound: disabled (all audio backends failed)\n";
     }
     std::cout << "[native_h700] sound init: backend=" << sfx.BackendName()
               << " ready=" << (sfx_ready ? "1" : "0")
-              << " volume=" << config.Get().sfx_volume << "\n";
+              << " volume=" << runtime_sfx_volume << "\n";
     return sfx_ready;
   };
   std::cout << "[native_h700] sound: config_audio=" << (config.Get().audio ? "1" : "0")
@@ -1404,13 +1422,6 @@ int main(int, char **argv) {
 
     const bool shared_ui_cover = (tex == ui_assets.book_cover_txt ||
                                   tex == ui_assets.book_cover_pdf);
-    const std::string ext = item.is_dir ? std::string{} : GetLowerExt(real_path);
-    const bool retryable_fallback =
-        shared_ui_cover &&
-        (item.is_dir || ext == ".pdf" || ext == ".epub");
-    if (retryable_fallback) {
-      return tex;
-    }
     const bool owned = (tex != nullptr && !shared_ui_cover);
     int tw = 0;
     int th = 0;
@@ -1734,6 +1745,29 @@ int main(int, char **argv) {
 #endif
   };
 
+  auto open_epub_text_book = [&](const std::string &path) -> bool {
+#ifndef HAVE_SDL2_TTF
+    (void)path;
+    return false;
+#else
+    EpubReader epub_reader;
+    EpubReader::ExtractedText extracted;
+    std::string error;
+    const std::filesystem::path asset_cache_dir = txt_layout_cache_dir / "epub_assets";
+    if (!epub_reader.ExtractText(path, asset_cache_dir.string(), extracted, error)) {
+      runtime_log::Line("[reader][epub] text fallback failed path=" + path + " error=" + error);
+      std::cerr << "[reader][epub] text fallback failed: " << error << " path=" << path << "\n";
+      return false;
+    }
+    auto deps = make_txt_session_deps();
+    const bool opened = OpenTextBufferSession(path, std::move(extracted.text), extracted.logical_size,
+                                              extracted.logical_mtime, deps);
+    runtime_log::Line(std::string("[reader][epub] text fallback ") +
+                      (opened ? "opened " : "failed ") + path);
+    return opened;
+#endif
+  };
+
   auto text_scroll_by = [&](int delta_px) {
     auto deps = make_txt_session_deps();
     TextScrollBy(delta_px, current_book, deps);
@@ -1967,8 +2001,21 @@ int main(int, char **argv) {
     }
     HandleVolumeControls(
         app_ui, input, now, volume_controller, config,
-        [&](int volume) { sfx.SetVolume(volume); },
-        [&]() { play_sfx(SfxId::Change); });
+        [&](int volume) {
+          runtime_sfx_volume = std::clamp(volume, 0, SDL_MIX_MAXVOLUME);
+          sfx.SetVolume(runtime_sfx_volume);
+        },
+        [&]() { play_sfx(SfxId::Change); },
+        [&](uint32_t due) {
+          if (!pending_volume_change_sfx) {
+            pending_volume_change_sfx = true;
+            pending_volume_change_sfx_due = due;
+          }
+        });
+    if (pending_volume_change_sfx && SDL_TICKS_PASSED(now, pending_volume_change_sfx_due)) {
+      pending_volume_change_sfx = false;
+      play_sfx(SfxId::Change);
+    }
 
     if (state == State::Shelf || state == State::Settings) {
       if (input.IsJustPressed(Button::Up) || input.IsJustPressed(Button::Down) ||
@@ -2085,9 +2132,8 @@ int main(int, char **argv) {
           current_category,
           [&](const BookItem &item) {
             const std::string &real_path = item_real_path(item);
-            const std::filesystem::path real_fs_path = item_fs_path(item);
             const std::string ext = GetLowerExt(real_path);
-            const std::string open_path = real_fs_path.empty() ? real_path : real_fs_path.string();
+            const std::string open_path = real_path;
             reader = get_compatible_progress(item);
             ReaderOpenDeps open_deps{
                 renderer,
@@ -2101,17 +2147,27 @@ int main(int, char **argv) {
                 file_exists,
             };
             const bool opened = OpenReaderSession(open_path, ext, open_deps);
-            if (opened) {
+            bool final_opened = opened;
+            if (!final_opened && ext == ".epub") {
+              reader_ui.current_book = open_path;
+              final_opened = open_epub_text_book(open_path);
+              if (final_opened) {
+                epub_runtime.Close();
+                pdf_runtime.Close();
+                reader_ui.mode = ReaderMode::Txt;
+              }
+            }
+            if (final_opened) {
               history_store.Add(open_path);
               reader_ui.current_book = open_path;
               state = State::Reader;
               scene_flash.Snap(kSceneFadeFlashAlpha);
               scene_flash.AnimateTo(0.0f, kSceneFadeFlashDurationSec, animation::Ease::OutCubic);
             } else {
-              show_transient_message(u8"未找到文�?");
+              show_transient_message("Open failed");
               state = State::Shelf;
             }
-            return opened;
+            return final_opened;
           },
       };
       HandleShelfInput(shelf_input_deps);

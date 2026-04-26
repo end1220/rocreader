@@ -16,13 +16,35 @@
 namespace {
 
 #ifdef HAVE_LIBZIP
-std::string ResolveRelative(const std::string &base_dir, const std::string &href) {
-  try {
-    std::filesystem::path p = std::filesystem::path(base_dir) / std::filesystem::path(href);
-    return filesystem_compat::LexicallyNormal(p).generic_string();
-  } catch (...) {
-    return href;
+std::string NormalizeZipPath(std::string path) {
+  std::replace(path.begin(), path.end(), '\\', '/');
+  std::vector<std::string> parts;
+  size_t cursor = 0;
+  while (cursor <= path.size()) {
+    const size_t slash = path.find('/', cursor);
+    std::string part = path.substr(cursor, slash == std::string::npos ? std::string::npos : slash - cursor);
+    if (part.empty() || part == ".") {
+      // skip
+    } else if (part == "..") {
+      if (!parts.empty()) parts.pop_back();
+    } else {
+      parts.push_back(std::move(part));
+    }
+    if (slash == std::string::npos) break;
+    cursor = slash + 1;
   }
+  std::string out;
+  for (const auto &part : parts) {
+    if (!out.empty()) out.push_back('/');
+    out += part;
+  }
+  return out;
+}
+
+std::string ResolveRelative(const std::string &base_dir, const std::string &href) {
+  if (href.empty()) return NormalizeZipPath(base_dir);
+  if (base_dir.empty()) return NormalizeZipPath(href);
+  return NormalizeZipPath(base_dir + "/" + href);
 }
 
 std::string DecodeHtmlEntities(std::string s) {
@@ -110,22 +132,34 @@ struct EpubPackage {
   std::unordered_map<std::string, std::string> href_to_media_type;
   std::vector<std::string> ordered_docs;
   std::string opf_dir;
+  std::string cover_id;
 };
 
 bool ReadZipEntry(zip_t *za, const std::string &name, std::string &content) {
   zip_stat_t st{};
-  if (zip_stat(za, name.c_str(), 0, &st) != 0) return false;
+  zip_int64_t index = zip_name_locate(za, name.c_str(), 0);
+  if (index < 0) index = zip_name_locate(za, name.c_str(), ZIP_FL_NOCASE);
+  if (index < 0) return false;
+  if (zip_stat_index(za, static_cast<zip_uint64_t>(index), 0, &st) != 0) return false;
   if (st.size > static_cast<zip_uint64_t>(64 * 1024 * 1024)) return false;
-  zip_file_t *zf = zip_fopen(za, name.c_str(), 0);
+  zip_file_t *zf = zip_fopen_index(za, static_cast<zip_uint64_t>(index), 0);
   if (!zf) return false;
   std::string data;
   data.resize(static_cast<size_t>(st.size));
-  const zip_int64_t rd = zip_fread(zf, data.data(), st.size);
+  size_t total = 0;
+  while (total < data.size()) {
+    const zip_int64_t rd = zip_fread(zf, data.data() + total, data.size() - total);
+    if (rd < 0) {
+      zip_fclose(zf);
+      return false;
+    }
+    if (rd == 0) break;
+    total += static_cast<size_t>(rd);
+  }
   zip_fclose(zf);
-  if (rd < 0) return false;
-  data.resize(static_cast<size_t>(rd));
+  data.resize(total);
   content = std::move(data);
-  return true;
+  return !content.empty();
 }
 
 bool ParsePackage(zip_t *za, EpubPackage &pkg, std::string &error) {
@@ -159,6 +193,17 @@ bool ParsePackage(zip_t *za, EpubPackage &pkg, std::string &error) {
     pkg.opf_dir = std::filesystem::path(opf_path).parent_path().generic_string();
   } catch (...) {
     pkg.opf_dir.clear();
+  }
+
+  const std::regex meta_re("<meta\\b([^>]*)>", std::regex::icase);
+  for (std::sregex_iterator it(opf.begin(), opf.end(), meta_re), end; it != end; ++it) {
+    AttrMap attrs = ParseTagAttrs((*it)[1].str());
+    const auto name_it = attrs.find("name");
+    const auto content_it = attrs.find("content");
+    if (name_it != attrs.end() && content_it != attrs.end() && name_it->second == "cover") {
+      pkg.cover_id = content_it->second;
+      break;
+    }
   }
 
   std::vector<std::string> manifest_html_docs;
@@ -365,7 +410,14 @@ bool EpubReader::ExtractCoverImage(const std::string &path, CoverImage &out, std
   }
 
   std::string cover_entry;
+  if (!pkg.cover_id.empty()) {
+    const auto cover_it = pkg.id_to_item.find(pkg.cover_id);
+    if (cover_it != pkg.id_to_item.end() && cover_it->second.media_type.rfind("image/", 0) == 0) {
+      cover_entry = ResolveRelative(pkg.opf_dir, cover_it->second.href);
+    }
+  }
   for (const auto &kv : pkg.id_to_item) {
+    if (!cover_entry.empty()) break;
     const ManifestItem &item = kv.second;
     if (item.properties.find("cover-image") != std::string::npos &&
         item.media_type.rfind("image/", 0) == 0) {

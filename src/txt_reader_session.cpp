@@ -330,6 +330,107 @@ bool OpenTextBookSession(const std::string &path, TxtReaderSessionDeps &deps) {
   return true;
 }
 
+bool OpenTextBufferSession(const std::string &path, std::string raw, uintmax_t logical_size,
+                           long long logical_mtime, TxtReaderSessionDeps &deps) {
+  deps.open_ui_font();
+  if (!deps.has_reader_font()) {
+    std::cerr << "[reader] text buffer reader failed: ui font unavailable.\n";
+    return false;
+  }
+
+  const SDL_Rect text_bounds = deps.get_text_viewport_bounds();
+  int font_h = deps.reader_font_height();
+  if (font_h <= 0) font_h = 24;
+  const int line_h = font_h + deps.txt_line_spacing;
+  const std::string txt_cache_key =
+      deps.make_layout_cache_key(path, text_bounds, line_h, logical_size, logical_mtime);
+
+  TxtReaderState next{};
+  next.open = true;
+  next.viewport_x = text_bounds.x;
+  next.viewport_y = text_bounds.y;
+  next.viewport_w = text_bounds.w;
+  next.viewport_h = text_bounds.h;
+  next.line_h = line_h;
+  next.cache_key = txt_cache_key;
+  const size_t preferred_source_offset = deps.ui.progress.scroll_x > 0
+                                             ? static_cast<size_t>(std::max(0, deps.ui.progress.scroll_x))
+                                             : 0;
+
+  auto txt_cache_it = deps.layout_cache.find(next.cache_key);
+  if (txt_cache_it != deps.layout_cache.end()) {
+    txt_cache_it->second.last_use = SDL_GetTicks();
+    next.lines = txt_cache_it->second.lines;
+    next.line_source_offsets = txt_cache_it->second.line_source_offsets;
+    next.content_h = txt_cache_it->second.content_h;
+    next.truncated = txt_cache_it->second.truncated;
+    next.limit_hit = txt_cache_it->second.limit_hit;
+    next.truncation_notice_added = true;
+    next.loading = false;
+    next.restore_source_offset = preferred_source_offset;
+    next.target_scroll_px = std::max(0, deps.ui.progress.scroll_y);
+    SyncScrollToRestoreAnchor(next);
+    deps.ui.txt_reader = std::move(next);
+    deps.ui.mode = ReaderMode::Txt;
+    deps.ui.progress_overlay_visible = false;
+    deps.invalidate_all_render_cache();
+    deps.clamp_text_scroll();
+    return true;
+  }
+
+  TxtLayoutCacheEntry disk_cache_entry;
+  if (deps.load_layout_cache_from_disk(next.cache_key, path, disk_cache_entry)) {
+    disk_cache_entry.last_use = SDL_GetTicks();
+    deps.layout_cache[next.cache_key] = disk_cache_entry;
+    deps.prune_layout_cache();
+    next.lines = disk_cache_entry.lines;
+    next.line_source_offsets = disk_cache_entry.line_source_offsets;
+    next.content_h = disk_cache_entry.content_h;
+    next.truncated = disk_cache_entry.truncated;
+    next.limit_hit = disk_cache_entry.limit_hit;
+    next.truncation_notice_added = true;
+    next.loading = false;
+    next.restore_source_offset = preferred_source_offset;
+    next.target_scroll_px = std::max(0, deps.ui.progress.scroll_y);
+    SyncScrollToRestoreAnchor(next);
+    deps.ui.txt_reader = std::move(next);
+    deps.ui.mode = ReaderMode::Txt;
+    deps.ui.progress_overlay_visible = false;
+    deps.invalidate_all_render_cache();
+    deps.clamp_text_scroll();
+    return true;
+  }
+
+  next.pending_raw = std::move(raw);
+  if (next.pending_raw.size() > deps.txt_max_bytes) {
+    next.pending_raw.resize(deps.txt_max_bytes);
+    next.truncated = true;
+  }
+  next.pending_line.reserve(256);
+  next.pending_line_source_offset = 0;
+  next.parse_pos = 0;
+  next.restore_source_offset = preferred_source_offset;
+  next.loading = true;
+  next.limit_hit = false;
+  next.truncation_notice_added = false;
+  next.lines.reserve(kTxtInitialLineReserve);
+  next.target_scroll_px = std::max(0, deps.ui.progress.scroll_y);
+  next.scroll_px = 0;
+  next.last_resume_cache_save = 0;
+  next.resume_cache_dirty = true;
+
+  deps.ui.txt_reader = std::move(next);
+  ProcessTextLayoutChunk(deps.ui.txt_reader, 8, 32768, &deps.ui.txt_reader.cache_key, deps);
+  WarmTextReaderToTarget(deps.ui.txt_reader, &deps.ui.txt_reader.cache_key, deps);
+  if (!deps.ui.txt_reader.loading) FinalizeTextReaderLoading(deps.ui.txt_reader, &deps.ui.txt_reader.cache_key, deps);
+  SyncScrollToRestoreAnchor(deps.ui.txt_reader);
+  deps.ui.mode = ReaderMode::Txt;
+  deps.ui.progress_overlay_visible = false;
+  deps.invalidate_all_render_cache();
+  deps.clamp_text_scroll();
+  return true;
+}
+
 void PersistCurrentTxtResumeSnapshot(const std::string &book_path, bool force, TxtReaderSessionDeps &deps) {
   if (book_path.empty()) return;
   if (deps.ui.mode != ReaderMode::Txt || !deps.ui.txt_reader.open) return;

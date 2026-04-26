@@ -1,9 +1,8 @@
 #include "epub_comic_reader.h"
+#include "image_decode.h"
+#include "runtime_log.h"
 
 #include <SDL.h>
-#ifdef HAVE_SDL2_IMAGE
-#include <SDL_image.h>
-#endif
 
 #include <algorithm>
 #include <cctype>
@@ -21,13 +20,35 @@
 
 namespace {
 
-std::string ResolveRelative(const std::string &base_dir, const std::string &href) {
-  try {
-    std::filesystem::path p = std::filesystem::path(base_dir) / std::filesystem::path(href);
-    return filesystem_compat::LexicallyNormal(p).generic_string();
-  } catch (...) {
-    return href;
+std::string NormalizeZipPath(std::string path) {
+  std::replace(path.begin(), path.end(), '\\', '/');
+  std::vector<std::string> parts;
+  size_t cursor = 0;
+  while (cursor <= path.size()) {
+    const size_t slash = path.find('/', cursor);
+    std::string part = path.substr(cursor, slash == std::string::npos ? std::string::npos : slash - cursor);
+    if (part.empty() || part == ".") {
+      // skip
+    } else if (part == "..") {
+      if (!parts.empty()) parts.pop_back();
+    } else {
+      parts.push_back(std::move(part));
+    }
+    if (slash == std::string::npos) break;
+    cursor = slash + 1;
   }
+  std::string out;
+  for (const auto &part : parts) {
+    if (!out.empty()) out.push_back('/');
+    out += part;
+  }
+  return out;
+}
+
+std::string ResolveRelative(const std::string &base_dir, const std::string &href) {
+  if (href.empty()) return NormalizeZipPath(base_dir);
+  if (base_dir.empty()) return NormalizeZipPath(href);
+  return NormalizeZipPath(base_dir + "/" + href);
 }
 
 using AttrMap = std::unordered_map<std::string, std::string>;
@@ -68,20 +89,39 @@ bool IsLikelyImagePath(const std::string &path) {
          ext == ".bmp" || ext == ".gif";
 }
 
+std::string StripHrefSuffix(std::string href) {
+  const size_t hash = href.find('#');
+  if (hash != std::string::npos) href.erase(hash);
+  const size_t query = href.find('?');
+  if (query != std::string::npos) href.erase(query);
+  return href;
+}
+
 bool ReadZipEntry(zip_t *za, const std::string &name, std::vector<unsigned char> &out) {
   zip_stat_t st{};
-  if (zip_stat(za, name.c_str(), 0, &st) != 0) return false;
+  zip_int64_t index = zip_name_locate(za, name.c_str(), 0);
+  if (index < 0) {
+    index = zip_name_locate(za, name.c_str(), ZIP_FL_NOCASE);
+  }
+  if (index < 0) return false;
+  if (zip_stat_index(za, static_cast<zip_uint64_t>(index), 0, &st) != 0) return false;
   if (st.size > static_cast<zip_uint64_t>(128 * 1024 * 1024)) return false;
-  zip_file_t *zf = zip_fopen(za, name.c_str(), 0);
+  zip_file_t *zf = zip_fopen_index(za, static_cast<zip_uint64_t>(index), 0);
   if (!zf) return false;
   out.resize(static_cast<size_t>(st.size));
-  const zip_int64_t rd = zip_fread(zf, out.data(), st.size);
-  zip_fclose(zf);
-  if (rd < 0) {
-    out.clear();
-    return false;
+  size_t total = 0;
+  while (total < out.size()) {
+    const zip_int64_t rd = zip_fread(zf, out.data() + total, out.size() - total);
+    if (rd < 0) {
+      zip_fclose(zf);
+      out.clear();
+      return false;
+    }
+    if (rd == 0) break;
+    total += static_cast<size_t>(rd);
   }
-  out.resize(static_cast<size_t>(rd));
+  zip_fclose(zf);
+  out.resize(total);
   return !out.empty();
 }
 
@@ -93,14 +133,7 @@ bool ReadZipEntry(zip_t *za, const std::string &name, std::string &out) {
 }
 
 SDL_Surface *LoadSurfaceFromMemory(const unsigned char *data, size_t size) {
-  if (!data || size == 0) return nullptr;
-  SDL_RWops *rw = SDL_RWFromConstMem(data, static_cast<int>(size));
-  if (!rw) return nullptr;
-#ifdef HAVE_SDL2_IMAGE
-  return IMG_Load_RW(rw, 1);
-#else
-  return SDL_LoadBMP_RW(rw, 1);
-#endif
+  return DecodeSurfaceFromMemory(data, size);
 }
 
 struct ManifestItem {
@@ -130,22 +163,28 @@ bool EpubComicReader::Open(const std::string &path) {
 #ifdef HAVE_LIBZIP
   int zerr = 0;
   zip_t *za = zip_open(path.c_str(), ZIP_RDONLY, &zerr);
-  if (!za) return false;
+  if (!za) {
+    runtime_log::Line("[epub_comic] zip_open failed path=" + path + " zerr=" + std::to_string(zerr));
+    return false;
+  }
 
   std::string container_xml;
   if (!ReadZipEntry(za, "META-INF/container.xml", container_xml)) {
+    runtime_log::Line("[epub_comic] missing META-INF/container.xml path=" + path);
     zip_close(za);
     return false;
   }
 
   std::string rootfile_tag;
   if (!PickFirstMatch(container_xml, std::regex("<rootfile\\b([^>]*)>", std::regex::icase), rootfile_tag)) {
+    runtime_log::Line("[epub_comic] cannot locate rootfile path=" + path);
     zip_close(za);
     return false;
   }
   AttrMap rootfile_attrs = ParseTagAttrs(rootfile_tag);
   const auto full_it = rootfile_attrs.find("full-path");
   if (full_it == rootfile_attrs.end() || full_it->second.empty()) {
+    runtime_log::Line("[epub_comic] rootfile full-path missing path=" + path);
     zip_close(za);
     return false;
   }
@@ -153,6 +192,7 @@ bool EpubComicReader::Open(const std::string &path) {
   const std::string opf_path = full_it->second;
   std::string opf;
   if (!ReadZipEntry(za, opf_path, opf)) {
+    runtime_log::Line("[epub_comic] cannot read OPF path=" + path + " opf=" + opf_path);
     zip_close(za);
     return false;
   }
@@ -167,6 +207,7 @@ bool EpubComicReader::Open(const std::string &path) {
   std::unordered_map<std::string, std::string> href_to_media_type;
   std::vector<std::string> ordered_docs;
   std::vector<std::string> manifest_html_docs;
+  std::vector<std::string> manifest_images;
 
   const std::regex item_re("<item\\b([^>]*)>", std::regex::icase);
   for (std::sregex_iterator it(opf.begin(), opf.end(), item_re), end; it != end; ++it) {
@@ -177,13 +218,16 @@ bool EpubComicReader::Open(const std::string &path) {
       continue;
     }
     ManifestItem item;
-    item.href = href_it->second;
+    item.href = StripHrefSuffix(href_it->second);
     const auto mt_it = attrs.find("media-type");
     if (mt_it != attrs.end()) item.media_type = mt_it->second;
     id_to_item[id_it->second] = item;
     const std::string resolved = ResolveRelative(opf_dir, item.href);
     href_to_media_type[resolved] = item.media_type;
     if (IsHtmlMediaType(item.media_type)) manifest_html_docs.push_back(resolved);
+    if (item.media_type.rfind("image/", 0) == 0 || IsLikelyImagePath(resolved)) {
+      manifest_images.push_back(resolved);
+    }
   }
 
   const std::regex spine_re("<itemref\\b[^>]*idref\\s*=\\s*['\"]([^'\"]+)['\"][^>]*>", std::regex::icase);
@@ -196,6 +240,7 @@ bool EpubComicReader::Open(const std::string &path) {
   }
   if (ordered_docs.empty()) ordered_docs = manifest_html_docs;
   if (ordered_docs.empty()) {
+    runtime_log::Line("[epub_comic] no html/xhtml spine content path=" + path);
     zip_close(za);
     return false;
   }
@@ -210,7 +255,7 @@ bool EpubComicReader::Open(const std::string &path) {
       AttrMap attrs = ParseTagAttrs((*it)[1].str());
       const auto src_it = attrs.find("src");
       if (src_it == attrs.end() || src_it->second.empty()) continue;
-      const std::string img_entry = ResolveRelative(doc_base, src_it->second);
+      const std::string img_entry = ResolveRelative(doc_base, StripHrefSuffix(src_it->second));
       const auto mt_it = href_to_media_type.find(img_entry);
       const bool looks_like_image =
           (mt_it != href_to_media_type.end() && mt_it->second.rfind("image/", 0) == 0) ||
@@ -219,11 +264,24 @@ bool EpubComicReader::Open(const std::string &path) {
       pages.push_back(PageEntry{img_entry});
     }
   }
+  if (pages.empty()) {
+    for (const auto &img : manifest_images) {
+      pages.push_back(PageEntry{img});
+    }
+    if (!pages.empty()) {
+      runtime_log::Line("[epub_comic] using manifest image sequence path=" + path +
+                        " pages=" + std::to_string(pages.size()));
+    }
+  }
 
   if (pages.empty()) {
+    runtime_log::Line("[epub_comic] no image pages path=" + path);
     zip_close(za);
     return false;
   }
+  runtime_log::Line("[epub_comic] image pages path=" + path +
+                    " pages=" + std::to_string(pages.size()) +
+                    " first=" + pages.front().image_entry);
 
   impl_ = new Impl();
   impl_->zip = za;
@@ -319,9 +377,18 @@ bool EpubComicReader::PageSize(int page_index, int &w, int &h) const {
   }
 
   std::vector<unsigned char> bytes;
-  if (!ReadZipEntry(impl_->zip, entry.image_entry, bytes)) return false;
+  if (!ReadZipEntry(impl_->zip, entry.image_entry, bytes)) {
+    runtime_log::Line("[epub_comic] page size read failed page=" + std::to_string(page_index) +
+                      " entry=" + entry.image_entry);
+    return false;
+  }
   SDL_Surface *surface = LoadSurfaceFromMemory(bytes.data(), bytes.size());
-  if (!surface) return false;
+  if (!surface) {
+    runtime_log::Line("[epub_comic] page size decode failed page=" + std::to_string(page_index) +
+                      " entry=" + entry.image_entry +
+                      " bytes=" + std::to_string(bytes.size()));
+    return false;
+  }
   PageEntry &mutable_entry = impl_->pages[page_index];
   mutable_entry.width = surface->w;
   mutable_entry.height = surface->h;
@@ -349,14 +416,28 @@ bool EpubComicReader::RenderPageRGBA(int page_index, float scale, std::vector<un
 #ifdef HAVE_LIBZIP
   PageEntry &entry = impl_->pages[page_index];
   std::vector<unsigned char> bytes;
-  if (!ReadZipEntry(impl_->zip, entry.image_entry, bytes)) return false;
+  if (!ReadZipEntry(impl_->zip, entry.image_entry, bytes)) {
+    runtime_log::Line("[epub_comic] render read failed page=" + std::to_string(page_index) +
+                      " entry=" + entry.image_entry);
+    return false;
+  }
   if (cancel && cancel->load()) return false;
   SDL_Surface *surface = LoadSurfaceFromMemory(bytes.data(), bytes.size());
-  if (!surface) return false;
+  if (!surface) {
+    runtime_log::Line("[epub_comic] render decode failed page=" + std::to_string(page_index) +
+                      " entry=" + entry.image_entry +
+                      " bytes=" + std::to_string(bytes.size()));
+    return false;
+  }
 
   SDL_Surface *rgba_surface = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGBA32, 0);
   SDL_FreeSurface(surface);
-  if (!rgba_surface) return false;
+  if (!rgba_surface) {
+    runtime_log::Line("[epub_comic] render convert failed page=" + std::to_string(page_index) +
+                      " entry=" + entry.image_entry +
+                      " err=" + SDL_GetError());
+    return false;
+  }
 
   entry.width = rgba_surface->w;
   entry.height = rgba_surface->h;
@@ -373,10 +454,18 @@ bool EpubComicReader::RenderPageRGBA(int page_index, float scale, std::vector<un
     }
     scaled = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
     if (!scaled) {
+      runtime_log::Line("[epub_comic] render scaled surface failed page=" + std::to_string(page_index) +
+                        " target=" + std::to_string(w) + "x" + std::to_string(h) +
+                        " err=" + SDL_GetError());
       SDL_FreeSurface(rgba_surface);
       return false;
     }
     if (SDL_BlitScaled(rgba_surface, nullptr, scaled, nullptr) != 0) {
+      runtime_log::Line("[epub_comic] render blit scaled failed page=" + std::to_string(page_index) +
+                        " src=" + std::to_string(rgba_surface->w) + "x" +
+                        std::to_string(rgba_surface->h) +
+                        " dst=" + std::to_string(w) + "x" + std::to_string(h) +
+                        " err=" + SDL_GetError());
       SDL_FreeSurface(scaled);
       SDL_FreeSurface(rgba_surface);
       return false;

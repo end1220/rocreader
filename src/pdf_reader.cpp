@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include "filesystem_compat.h"
 #include <memory>
 #include <vector>
@@ -37,11 +38,24 @@ struct PdfReader::Impl {
 };
 #endif
 
+namespace {
+int ReadEnvInt(const char *name, int fallback_value, int min_value, int max_value) {
+  const char *raw = std::getenv(name);
+  if (!raw || !*raw) return fallback_value;
+  try {
+    return std::clamp(std::stoi(raw), min_value, max_value);
+  } catch (...) {
+    return fallback_value;
+  }
+}
+} // namespace
+
 bool PdfReader::Open(const std::string &path) {
   Close();
 #if defined(HAVE_MUPDF)
   impl_ = new Impl();
-  impl_->ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
+  const int store_mb = ReadEnvInt("ROCREADER_MUPDF_STORE_MB", 24, 4, 256);
+  impl_->ctx = fz_new_context(nullptr, nullptr, static_cast<unsigned int>(store_mb) * 1024u * 1024u);
   if (!impl_->ctx) {
     delete impl_;
     impl_ = nullptr;

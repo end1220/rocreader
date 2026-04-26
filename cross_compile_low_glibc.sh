@@ -83,7 +83,7 @@ import sys
 downloads = sys.argv[1]
 trimui_brick_layout = sys.argv[2] == "1"
 prefix = "ROC全能漫画阅读器ver"
-suffix = ".zip" if trimui_brick_layout else " for H700.zip"
+suffix = " for Trimui Brick.zip" if trimui_brick_layout else " for H700.zip"
 pattern = re.compile(r"^" + re.escape(prefix) + r"(\d+)\.(\d+)" + re.escape(suffix) + r"$")
 best = None
 
@@ -103,7 +103,7 @@ if best is None:
 else:
     major, minor = best[0], best[1] + 1
 
-version = f"{major}.{minor}" if trimui_brick_layout else f"{major}.{minor:02d}"
+version = f"{major}.{minor:02d}"
 print(os.path.join(downloads, f"{prefix}{version}{suffix}"))
 PY
 }
@@ -449,6 +449,27 @@ find_so_in_libdir() {
   echo "[low_glibc] ALSA_CFLAGS=$ALSA_CFLAGS_FINAL"
   echo "[low_glibc] ALSA_LIBS=$ALSA_LIBS_FINAL"
 
+  JPEG_CFLAGS_FINAL=""
+  JPEG_LIBS_FINAL=""
+  if [ -f "$SYSROOT/usr/include/jpeglib.h" ]; then
+    JPEG_CFLAGS_FINAL="-I$SYSROOT/usr/include"
+  fi
+  for jpeg_lib in \
+    "$SYSROOT/usr/lib/aarch64-linux-gnu/libjpeg.a" \
+    "$SYSROOT/lib/aarch64-linux-gnu/libjpeg.a" \
+    "$SYSROOT/usr/lib/libjpeg.a" \
+    "$SYSROOT/lib/libjpeg.a"; do
+    if [ -f "$jpeg_lib" ]; then
+      JPEG_LIBS_FINAL="$jpeg_lib"
+      break
+    fi
+  done
+  if [ -z "$JPEG_LIBS_FINAL" ]; then
+    JPEG_CFLAGS_FINAL=""
+  fi
+  echo "[low_glibc] JPEG_CFLAGS=$JPEG_CFLAGS_FINAL"
+  echo "[low_glibc] JPEG_LIBS=$JPEG_LIBS_FINAL"
+
   echo "[low_glibc] make clean"
   make clean
   echo "[low_glibc] make"
@@ -470,6 +491,10 @@ find_so_in_libdir() {
     POPPLER_LIBS="$FALLBACK_POPPLER_LIBS" \
     LIBZIP_CFLAGS="$LIBZIP_CFLAGS_FINAL" \
     LIBZIP_LIBS="$LIBZIP_LIBS_FINAL" \
+    WEBP_CFLAGS="${WEBP_CFLAGS:-}" \
+    WEBP_LIBS="${WEBP_LIBS:-}" \
+    JPEG_CFLAGS="$JPEG_CFLAGS_FINAL" \
+    JPEG_LIBS="$JPEG_LIBS_FINAL" \
     MUPDF_CFLAGS="$MUPDF_CFLAGS_FINAL" \
     MUPDF_LIBS="$MUPDF_LIBS_FINAL" \
     FS_LIBS="-lstdc++fs" \
@@ -684,6 +709,7 @@ PACKAGE_TAG="trimui-brick-20260426-system-volume-menu-start-select"
 export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-alsa}"
 export SDL_NOMOUSE="${SDL_NOMOUSE:-1}"
 export ROCREADER_ROOT="$APP_DIR"
+export ROCREADER_CACHE_ROOT="$APP_DIR/cache"
 export ROCREADER_CARD1_ROOT="/mnt/SDCARD"
 export ROCREADER_CARD2_ROOT="/mnt/sdcard"
 export ROCREADER_SCREEN_PROFILE="${ROCREADER_SCREEN_PROFILE:-1024x768}"
@@ -692,10 +718,12 @@ export ROCREADER_SCREEN_H="${ROCREADER_SCREEN_H:-768}"
 export ROCREADER_PRELOAD_AVATARS="${ROCREADER_PRELOAD_AVATARS:-1}"
 export ROCREADER_UPDATE_CONTENTS_URL="${ROCREADER_UPDATE_CONTENTS_URL:-https://github.com/LPF970915/ROCreader/tree/main/TrimuiBrick/Downloads}"
 export ROCREADER_PDF_LOW_MEMORY="${ROCREADER_PDF_LOW_MEMORY:-1}"
+export ROCREADER_MUPDF_STORE_MB="${ROCREADER_MUPDF_STORE_MB:-24}"
 export ROCREADER_SYSTEM_VOLUME_LEVELS="${ROCREADER_SYSTEM_VOLUME_LEVELS:-20}"
 export ROCREADER_TRIMUI_SHMVAR_VOLUME="${ROCREADER_TRIMUI_SHMVAR_VOLUME:-1}"
 export ROCREADER_TRIMUI_SHMVAR_PATH="${ROCREADER_TRIMUI_SHMVAR_PATH:-/usr/trimui/bin/shmvar}"
 export ROCREADER_SYSTEM_VOLUME_OUTPUT_MAX_PERCENT="${ROCREADER_SYSTEM_VOLUME_OUTPUT_MAX_PERCENT:-100}"
+export ROCREADER_SYSTEM_VOLUME_SFX_FOLLOWS_HARDWARE="${ROCREADER_SYSTEM_VOLUME_SFX_FOLLOWS_HARDWARE:-1}"
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
   export XDG_RUNTIME_DIR="/tmp/rocreader-xdg"
 fi
@@ -956,7 +984,7 @@ log_line "[launcher] package_tag=$PACKAGE_TAG"
 log_line "[launcher] app=$APP_DIR"
 log_line "[launcher] screen=${ROCREADER_SCREEN_W}x${ROCREADER_SCREEN_H}"
 log_line "[launcher] update_url=${ROCREADER_UPDATE_CONTENTS_URL}"
-log_line "[launcher] pdf_low_memory=${ROCREADER_PDF_LOW_MEMORY}"
+log_line "[launcher] pdf_low_memory=${ROCREADER_PDF_LOW_MEMORY} mupdf_store_mb=${ROCREADER_MUPDF_STORE_MB}"
 log_line "[launcher] volume_levels=${ROCREADER_SYSTEM_VOLUME_LEVELS} volume_output_max=${ROCREADER_SYSTEM_VOLUME_OUTPUT_MAX_PERCENT} trimui_shmvar_volume=${ROCREADER_TRIMUI_SHMVAR_VOLUME} shmvar_path=${ROCREADER_TRIMUI_SHMVAR_PATH}"
 log_line "[launcher] pwd=$(pwd)"
 log_line "[launcher] bin=$BIN"
