@@ -1326,10 +1326,21 @@ int main(int, char **argv) {
   };
   std::string transient_message;
   uint32_t transient_message_until = 0;
+  uint32_t transient_message_shown_at = 0;
+  bool transient_message_dismiss_on_input = false;
   auto show_transient_message = [&](const std::string &message,
-                                    uint32_t duration_ms = kTransientMessageDurationMs) {
+                                    uint32_t duration_ms = kTransientMessageDurationMs,
+                                    bool dismiss_on_input = false) {
     transient_message = message;
-    transient_message_until = SDL_GetTicks() + duration_ms;
+    transient_message_shown_at = SDL_GetTicks();
+    transient_message_until = transient_message_shown_at + duration_ms;
+    transient_message_dismiss_on_input = dismiss_on_input;
+  };
+  auto any_button_just_pressed = [&]() {
+    for (int i = 0; i < kButtonCount; ++i) {
+      if (input.IsJustPressed(static_cast<Button>(i))) return true;
+    }
+    return false;
   };
 
   auto prune_cover_cache = [&]() {
@@ -1477,6 +1488,7 @@ int main(int, char **argv) {
     }
     txt_settings_state.font_size_level = clamped;
     current_reader_font_pt = reader_font_pt_for_level(clamped);
+    epub_runtime.SetFlowBaseFontPointSize(current_reader_font_pt);
     ShutdownUiTextCache(ui_text_cache, forget_texture_size);
   };
 
@@ -2037,6 +2049,15 @@ int main(int, char **argv) {
       play_sfx(SfxId::Change);
     }
 
+    bool transient_message_dismissed_this_frame = false;
+    if (transient_message_dismiss_on_input && !transient_message.empty() &&
+        SDL_TICKS_PASSED(now, transient_message_shown_at + 1) && any_button_just_pressed()) {
+      transient_message.clear();
+      transient_message_until = 0;
+      transient_message_dismiss_on_input = false;
+      transient_message_dismissed_this_frame = true;
+    }
+
     if (state == State::Shelf || state == State::Settings) {
       if (input.IsJustPressed(Button::Up) || input.IsJustPressed(Button::Down) ||
           input.IsJustPressed(Button::Left) || input.IsJustPressed(Button::Right)) {
@@ -2162,6 +2183,9 @@ int main(int, char **argv) {
                 reader_ui,
                 pdf_runtime,
                 epub_runtime,
+                [&]() { return current_reader_font_pt; },
+                [&]() { return GetTxtBackgroundColor(config.Get().txt_background_color); },
+                [&]() { return GetTxtFontColor(config.Get().txt_font_color); },
                 open_text_book,
                 close_text_reader,
                 file_exists,
@@ -2319,6 +2343,8 @@ int main(int, char **argv) {
                 config.Save();
                 settings_state.background_color = clamped;
                 settings_state.selected_option = clamped;
+                epub_runtime.SetFlowColors(GetTxtBackgroundColor(config.Get().txt_background_color),
+                                           GetTxtFontColor(config.Get().txt_font_color));
                 return true;
               },
               [&](int color_index, TxtSettingsState &settings_state) {
@@ -2328,6 +2354,8 @@ int main(int, char **argv) {
                 config.Save();
                 settings_state.font_color = clamped;
                 settings_state.selected_option = clamped;
+                epub_runtime.SetFlowColors(GetTxtBackgroundColor(config.Get().txt_background_color),
+                                           GetTxtFontColor(config.Get().txt_font_color));
                 return true;
               },
               [&](int delta, TxtSettingsState &settings_state) {
@@ -2540,17 +2568,26 @@ int main(int, char **argv) {
           };
           const bool rotate_left_pressed = input.IsJustPressed(Button::L2);
           const bool rotate_right_pressed = input.IsJustPressed(Button::R2);
-          if (rotate_left_pressed) {
-            epub_runtime.RotateLeft();
-          }
-          if (rotate_right_pressed) {
-            epub_runtime.RotateRight();
-          }
-          if (input.IsJustPressed(Button::L1)) {
-            epub_runtime.ZoomOut();
-          }
-          if (input.IsJustPressed(Button::R1)) {
-            epub_runtime.ZoomIn();
+          const bool zoom_out_pressed = input.IsJustPressed(Button::L1);
+          const bool zoom_in_pressed = input.IsJustPressed(Button::R1);
+          const bool flow_epub = std::string(epub_runtime.BackendName()) == "epub-flow";
+          if (flow_epub && (rotate_left_pressed || rotate_right_pressed || zoom_out_pressed || zoom_in_pressed)) {
+            if (!transient_message_dismissed_this_frame) {
+              show_transient_message("EPUB图文混排模式禁用旋转和缩放", 3000, true);
+            }
+          } else {
+            if (rotate_left_pressed) {
+              epub_runtime.RotateLeft();
+            }
+            if (rotate_right_pressed) {
+              epub_runtime.RotateRight();
+            }
+            if (zoom_out_pressed) {
+              epub_runtime.ZoomOut();
+            }
+            if (zoom_in_pressed) {
+              epub_runtime.ZoomIn();
+            }
           }
           if (input.IsJustPressed(Button::A)) {
             epub_runtime.ResetView();

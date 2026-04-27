@@ -1,6 +1,7 @@
 #include "epub_runtime.h"
 
 #include "epub_comic_reader.h"
+#include "epub_flow_reader.h"
 #include "runtime_log.h"
 
 #include <SDL.h>
@@ -138,6 +139,8 @@ std::vector<unsigned char> RotateRgba(const std::vector<unsigned char> &src,
 
 struct EpubRuntime::Impl {
   EpubComicReader reader;
+  EpubFlowReader flow_reader;
+  bool flow_mode = false;
   SDL_Renderer *renderer = nullptr;
   std::string path;
   int screen_w = 720;
@@ -900,7 +903,10 @@ bool EpubRuntime::Open(SDL_Renderer *renderer,
                        const std::string &path,
                        int screen_w,
                        int screen_h,
-                       const EpubRuntimeProgress &initial_progress) {
+                       const EpubRuntimeProgress &initial_progress,
+                       int flow_base_font_pt,
+                       SDL_Color flow_background_color,
+                       SDL_Color flow_font_color) {
   Close();
   impl_->renderer = renderer;
   impl_->screen_w = std::max(1, screen_w);
@@ -916,6 +922,15 @@ bool EpubRuntime::Open(SDL_Renderer *renderer,
   runtime_log::Line("[epub_runtime] open path=" + path + " screen=" + std::to_string(impl_->screen_w) + "x" +
                     std::to_string(impl_->screen_h) + " max_texture=" +
                     std::to_string(impl_->max_texture_w) + "x" + std::to_string(impl_->max_texture_h));
+
+  if (EpubFlowReader::LooksLikeMixedLayout(path) &&
+      impl_->flow_reader.Open(path, renderer, impl_->screen_w, impl_->screen_h, initial_progress, flow_base_font_pt,
+                              flow_background_color, flow_font_color)) {
+    impl_->flow_mode = true;
+    impl_->path = path;
+    runtime_log::Line("[epub_runtime] using flow backend path=" + path);
+    return true;
+  }
 
   if (!impl_->reader.Open(path)) {
     runtime_log::Line("[epub_runtime] reader open failed path=" + path);
@@ -979,6 +994,8 @@ void EpubRuntime::Close() {
     impl_->worker = nullptr;
   }
   impl_->DestroyTexture();
+  impl_->flow_reader.Close();
+  impl_->flow_mode = false;
   impl_->reader.Close();
   impl_->path.clear();
   impl_->target_state = EpubState{};
@@ -996,15 +1013,23 @@ void EpubRuntime::Close() {
   impl_->DestroyReusableTexture();
 }
 
-bool EpubRuntime::IsOpen() const { return impl_ && impl_->reader.IsOpen(); }
+bool EpubRuntime::IsOpen() const {
+  if (!impl_) return false;
+  return impl_->flow_mode ? impl_->flow_reader.IsOpen() : impl_->reader.IsOpen();
+}
 
-bool EpubRuntime::HasRealRenderer() const { return impl_ && impl_->reader.HasRealRenderer(); }
+bool EpubRuntime::HasRealRenderer() const {
+  if (!impl_) return false;
+  return impl_->flow_mode ? impl_->flow_reader.HasRealRenderer() : impl_->reader.HasRealRenderer();
+}
 
 const char *EpubRuntime::BackendName() const {
-  return impl_ ? impl_->reader.BackendName() : "none";
+  if (!impl_) return "none";
+  return impl_->flow_mode ? impl_->flow_reader.BackendName() : impl_->reader.BackendName();
 }
 
 bool EpubRuntime::IsRenderPending() const {
+  if (impl_ && impl_->flow_mode) return impl_->flow_reader.IsRenderPending();
   if (!impl_ || !impl_->reader.IsOpen()) return false;
   if (!impl_->display_valid || !impl_->visible_source.valid) return true;
   if (!impl_->display_state.SameVisualState(impl_->target_state)) return true;
@@ -1016,6 +1041,10 @@ bool EpubRuntime::IsRenderPending() const {
 }
 
 void EpubRuntime::UpdateViewport(int screen_w, int screen_h) {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.UpdateViewport(screen_w, screen_h);
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   screen_w = std::max(1, screen_w);
   screen_h = std::max(1, screen_h);
@@ -1034,6 +1063,10 @@ void EpubRuntime::UpdateViewport(int screen_w, int screen_h) {
 }
 
 void EpubRuntime::Tick() {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.Tick();
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
 
   SDL_LockMutex(impl_->mutex);
@@ -1080,6 +1113,10 @@ void EpubRuntime::Tick() {
 }
 
 void EpubRuntime::Draw(SDL_Renderer *renderer) const {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.Draw(renderer);
+    return;
+  }
   if (!impl_ || !renderer || !impl_->visible_source.texture || !impl_->display_valid || !impl_->visible_source.valid) return;
 
   const bool exact = impl_->display_state.SameVisualState(impl_->target_state);
@@ -1095,6 +1132,10 @@ void EpubRuntime::Draw(SDL_Renderer *renderer) const {
 }
 
 void EpubRuntime::RotateLeft() {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.RotateLeft();
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
@@ -1109,6 +1150,10 @@ void EpubRuntime::RotateLeft() {
 }
 
 void EpubRuntime::RotateRight() {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.RotateRight();
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
@@ -1123,6 +1168,10 @@ void EpubRuntime::RotateRight() {
 }
 
 void EpubRuntime::ZoomOut() {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.ZoomOut();
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
@@ -1137,6 +1186,10 @@ void EpubRuntime::ZoomOut() {
 }
 
 void EpubRuntime::ZoomIn() {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.ZoomIn();
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
@@ -1151,6 +1204,10 @@ void EpubRuntime::ZoomIn() {
 }
 
 void EpubRuntime::ResetView() {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.ResetView();
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
@@ -1164,7 +1221,23 @@ void EpubRuntime::ResetView() {
   SDL_UnlockMutex(impl_->mutex);
 }
 
+void EpubRuntime::SetFlowBaseFontPointSize(int base_font_pt) {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.SetBaseFontPointSize(base_font_pt);
+  }
+}
+
+void EpubRuntime::SetFlowColors(SDL_Color background_color, SDL_Color font_color) {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.SetColors(background_color, font_color);
+  }
+}
+
 void EpubRuntime::ScrollByPixels(int delta_px) {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.ScrollByPixels(delta_px);
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const int old_page = impl_->target_state.location.page_num;
@@ -1188,6 +1261,10 @@ void EpubRuntime::ScrollByPixels(int delta_px) {
 }
 
 void EpubRuntime::JumpByScreen(int direction) {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.JumpByScreen(direction);
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen() || direction == 0) return;
   impl_->MarkInteraction();
   const int old_page = impl_->target_state.location.page_num;
@@ -1210,6 +1287,10 @@ void EpubRuntime::JumpByScreen(int direction) {
 }
 
 void EpubRuntime::SetPage(int page_index) {
+  if (impl_ && impl_->flow_mode) {
+    impl_->flow_reader.SetPage(page_index);
+    return;
+  }
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const int page_count = std::max(1, impl_->reader.PageCount());
@@ -1227,22 +1308,26 @@ void EpubRuntime::SetPage(int page_index) {
 
 int EpubRuntime::PageCount() const {
   if (!impl_) return 0;
+  if (impl_->flow_mode) return impl_->flow_reader.PageCount();
   return impl_->reader.PageCount();
 }
 
 bool EpubRuntime::PageSize(int page_index, int &w, int &h) const {
   if (!impl_) return false;
+  if (impl_->flow_mode) return impl_->flow_reader.PageSize(page_index, w, h);
   return impl_->reader.PageSize(page_index, w, h);
 }
 
 int EpubRuntime::CurrentPage() const {
   if (!impl_) return 0;
+  if (impl_->flow_mode) return impl_->flow_reader.CurrentPage();
   return impl_->target_state.location.page_num;
 }
 
 EpubRuntimeProgress EpubRuntime::Progress() const {
   EpubRuntimeProgress out;
   if (!impl_) return out;
+  if (impl_->flow_mode) return impl_->flow_reader.Progress();
   out.page = impl_->target_state.location.page_num;
   out.rotation = impl_->target_state.view.rotation;
   out.zoom = impl_->target_state.view.zoom;

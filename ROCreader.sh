@@ -17,6 +17,7 @@ export SDL_NOMOUSE="${SDL_NOMOUSE:-1}"
 export ROCREADER_ROOT="$APP_DIR"
 export ROCREADER_CARD1_ROOT="/mnt/mmc"
 export ROCREADER_CARD2_ROOT="/mnt/sdcard"
+export ROCREADER_FULL_INPUT_LOG="${ROCREADER_FULL_INPUT_LOG:-0}"
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
   export XDG_RUNTIME_DIR="/tmp/rocreader-xdg"
 fi

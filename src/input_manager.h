@@ -83,6 +83,14 @@ private:
   static bool ParseButtonName(const std::string &raw, Button &out);
   void LoadOverrides(const std::string &mapping_path);
   void SetDown(Button b, bool down);
+  bool MarkProbeLogged(std::array<bool, 512> &seen, int index);
+  bool MarkProbeLogged(std::array<bool, 16> &seen, int index);
+  bool ShouldLogProbeKey(SDL_Scancode scancode);
+  bool ShouldLogProbePadButton(uint8_t button);
+  bool ShouldLogProbeJoyButton(uint8_t button);
+  bool ShouldLogProbeHat(uint8_t hat, uint8_t value);
+  bool ShouldLogProbePadAxis(int axis, int value);
+  bool ShouldLogProbeJoyAxis(int axis, int value);
   const BtnState &Get(Button b) const;
   std::string DescribeMap(const std::array<Button, 32> &map, const char *prefix) const;
 
@@ -94,5 +102,12 @@ private:
   std::array<int, 16> last_joy_axis_values_{};
   std::array<bool, 16> pad_axis_seen_{};
   std::array<bool, 16> joy_axis_seen_{};
+  std::array<bool, 512> probe_key_seen_{};
+  std::array<bool, 512> probe_pad_button_seen_{};
+  std::array<bool, 512> probe_joy_button_seen_{};
+  std::array<bool, 512> probe_hat_seen_{};
+  std::array<bool, 512> probe_pad_axis_seen_{};
+  std::array<bool, 512> probe_joy_axis_seen_{};
+  bool full_input_log_enabled_ = false;
   float dt_ = 1.0f / 60.0f;
 };

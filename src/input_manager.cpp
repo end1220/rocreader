@@ -35,6 +35,11 @@ const char *ButtonNameOrInvalid(Button b) {
   return InputManager::IsValid(b) ? ButtonName(b) : "Invalid";
 }
 
+bool FullInputLogEnabled() {
+  const char *value = std::getenv("ROCREADER_FULL_INPUT_LOG");
+  return value && *value && std::string(value) != "0";
+}
+
 const char *InputProfileName(InputProfile profile) {
   switch (profile) {
   case InputProfile::DesktopDefault: return "desktop-default";
@@ -66,6 +71,7 @@ const char *SdlEventName(Uint32 type) {
 
 InputManager::InputManager(const std::string &mapping_path, InputProfile input_profile) {
   input_profile_ = input_profile;
+  full_input_log_enabled_ = FullInputLogEnabled();
   pad_map_.fill(InvalidButton());
   joy_map_.fill(InvalidButton());
   LoadDefaultPadMap(input_profile);
@@ -86,8 +92,10 @@ void InputManager::BeginFrame(float dt) {
 void InputManager::HandleEvent(const SDL_Event &e) {
   if (e.type == SDL_KEYDOWN && !e.key.repeat) {
     const Button mapped = KeyToButton(e.key.keysym.sym);
-    if (input_profile_ == InputProfile::TrimuiBrick) {
-      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+    if (input_profile_ == InputProfile::TrimuiBrick || ShouldLogProbeKey(e.key.keysym.scancode)) {
+      std::cout << "[native_h700] "
+                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
+                << "type=" << SdlEventName(e.type)
                 << " key=" << static_cast<int>(e.key.keysym.sym)
                 << " scancode=" << static_cast<int>(e.key.keysym.scancode)
                 << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
@@ -95,7 +103,7 @@ void InputManager::HandleEvent(const SDL_Event &e) {
     SetDown(mapped, true);
   } else if (e.type == SDL_KEYUP) {
     const Button mapped = KeyToButton(e.key.keysym.sym);
-    if (input_profile_ == InputProfile::TrimuiBrick) {
+    if (input_profile_ == InputProfile::TrimuiBrick && !full_input_log_enabled_) {
       std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
                 << " key=" << static_cast<int>(e.key.keysym.sym)
                 << " scancode=" << static_cast<int>(e.key.keysym.scancode)
@@ -104,30 +112,31 @@ void InputManager::HandleEvent(const SDL_Event &e) {
     SetDown(mapped, false);
   } else if (e.type == SDL_CONTROLLERBUTTONDOWN) {
     const Button mapped = PadToButton(e.cbutton.button);
-    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-              << " pad_button=" << static_cast<int>(e.cbutton.button)
-              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    if (!full_input_log_enabled_ || ShouldLogProbePadButton(e.cbutton.button)) {
+      std::cout << "[native_h700] "
+                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
+                << "type=" << SdlEventName(e.type)
+                << " pad_button=" << static_cast<int>(e.cbutton.button)
+                << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    }
     SetDown(PadToButton(e.cbutton.button), true);
   } else if (e.type == SDL_CONTROLLERBUTTONUP) {
     const Button mapped = PadToButton(e.cbutton.button);
-    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-              << " pad_button=" << static_cast<int>(e.cbutton.button)
-              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    if (!full_input_log_enabled_) {
+      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+                << " pad_button=" << static_cast<int>(e.cbutton.button)
+                << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    }
     SetDown(PadToButton(e.cbutton.button), false);
   } else if (e.type == SDL_CONTROLLERAXISMOTION) {
     constexpr int kDeadzone = 16000;
-    constexpr int kLogDelta = 512;
     const int axis = e.caxis.axis;
     const int val = static_cast<int>(e.caxis.value);
     const bool valid_axis = axis >= 0 && axis < static_cast<int>(last_pad_axis_values_.size());
     const int old_val = valid_axis ? last_pad_axis_values_[static_cast<size_t>(axis)] : 0;
-    const bool full_axis_log = std::getenv("ROCREADER_FULL_INPUT_LOG") != nullptr;
-    const bool should_log_axis =
-        full_axis_log && input_profile_ == InputProfile::TrimuiBrick &&
-        (!valid_axis || !pad_axis_seen_[static_cast<size_t>(axis)] || std::abs(val - old_val) >= kLogDelta ||
-         std::abs(val) < kLogDelta || std::abs(val) > kDeadzone);
+    const bool should_log_axis = ShouldLogProbePadAxis(axis, val);
     if (should_log_axis) {
-      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+      std::cout << "[native_h700] input probe: type=" << SdlEventName(e.type)
                 << " which=" << e.caxis.which
                 << " pad_axis=" << axis
                 << " value=" << val
@@ -150,39 +159,44 @@ void InputManager::HandleEvent(const SDL_Event &e) {
     }
   } else if (e.type == SDL_JOYBUTTONDOWN) {
     const Button mapped = JoyButtonToButton(e.jbutton.button);
-    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-              << " joy_button=" << static_cast<int>(e.jbutton.button)
-              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    if (!full_input_log_enabled_ || ShouldLogProbeJoyButton(e.jbutton.button)) {
+      std::cout << "[native_h700] "
+                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
+                << "type=" << SdlEventName(e.type)
+                << " joy_button=" << static_cast<int>(e.jbutton.button)
+                << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    }
     SetDown(JoyButtonToButton(e.jbutton.button), true);
   } else if (e.type == SDL_JOYBUTTONUP) {
     const Button mapped = JoyButtonToButton(e.jbutton.button);
-    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-              << " joy_button=" << static_cast<int>(e.jbutton.button)
-              << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    if (!full_input_log_enabled_) {
+      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+                << " joy_button=" << static_cast<int>(e.jbutton.button)
+                << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
+    }
     SetDown(JoyButtonToButton(e.jbutton.button), false);
   } else if (e.type == SDL_JOYHATMOTION) {
     const uint8_t v = e.jhat.value;
-    std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-              << " hat=" << static_cast<int>(e.jhat.hat)
-              << " value=" << static_cast<int>(v) << "\n";
+    if (!full_input_log_enabled_ || ShouldLogProbeHat(e.jhat.hat, v)) {
+      std::cout << "[native_h700] "
+                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
+                << "type=" << SdlEventName(e.type)
+                << " hat=" << static_cast<int>(e.jhat.hat)
+                << " value=" << static_cast<int>(v) << "\n";
+    }
     SetDown(Button::Up, (v & SDL_HAT_UP) != 0);
     SetDown(Button::Down, (v & SDL_HAT_DOWN) != 0);
     SetDown(Button::Left, (v & SDL_HAT_LEFT) != 0);
     SetDown(Button::Right, (v & SDL_HAT_RIGHT) != 0);
   } else if (e.type == SDL_JOYAXISMOTION) {
     constexpr int kDeadzone = 16000;
-    constexpr int kLogDelta = 512;
     const int axis = e.jaxis.axis;
     const int val = static_cast<int>(e.jaxis.value);
     const bool valid_axis = axis >= 0 && axis < static_cast<int>(last_joy_axis_values_.size());
     const int old_val = valid_axis ? last_joy_axis_values_[static_cast<size_t>(axis)] : 0;
-    const bool full_axis_log = std::getenv("ROCREADER_FULL_INPUT_LOG") != nullptr;
-    const bool should_log_axis =
-        full_axis_log && input_profile_ == InputProfile::TrimuiBrick &&
-        (!valid_axis || !joy_axis_seen_[static_cast<size_t>(axis)] || std::abs(val - old_val) >= kLogDelta ||
-         std::abs(val) < kLogDelta || std::abs(val) > kDeadzone);
+    const bool should_log_axis = ShouldLogProbeJoyAxis(axis, val);
     if (should_log_axis) {
-      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
+      std::cout << "[native_h700] input probe: type=" << SdlEventName(e.type)
                 << " which=" << e.jaxis.which
                 << " joy_axis=" << axis
                 << " value=" << val
@@ -488,6 +502,54 @@ void InputManager::SetDown(Button b, bool down) {
     s.down = false;
     s.just_released = true;
   }
+}
+
+bool InputManager::MarkProbeLogged(std::array<bool, 512> &seen, int index) {
+  if (!full_input_log_enabled_ || index < 0 || index >= static_cast<int>(seen.size())) return false;
+  bool &slot = seen[static_cast<size_t>(index)];
+  if (slot) return false;
+  slot = true;
+  return true;
+}
+
+bool InputManager::MarkProbeLogged(std::array<bool, 16> &seen, int index) {
+  if (!full_input_log_enabled_ || index < 0 || index >= static_cast<int>(seen.size())) return false;
+  bool &slot = seen[static_cast<size_t>(index)];
+  if (slot) return false;
+  slot = true;
+  return true;
+}
+
+bool InputManager::ShouldLogProbeKey(SDL_Scancode scancode) {
+  return MarkProbeLogged(probe_key_seen_, static_cast<int>(scancode));
+}
+
+bool InputManager::ShouldLogProbePadButton(uint8_t button) {
+  return MarkProbeLogged(probe_pad_button_seen_, static_cast<int>(button));
+}
+
+bool InputManager::ShouldLogProbeJoyButton(uint8_t button) {
+  return MarkProbeLogged(probe_joy_button_seen_, static_cast<int>(button));
+}
+
+bool InputManager::ShouldLogProbeHat(uint8_t hat, uint8_t value) {
+  if (!full_input_log_enabled_ || value == SDL_HAT_CENTERED) return false;
+  const int index = static_cast<int>(hat) * 16 + static_cast<int>(value);
+  return MarkProbeLogged(probe_hat_seen_, index);
+}
+
+bool InputManager::ShouldLogProbePadAxis(int axis, int value) {
+  constexpr int kDeadzone = 16000;
+  if (std::abs(value) <= kDeadzone) return false;
+  const int direction = value > 0 ? 1 : 0;
+  return MarkProbeLogged(probe_pad_axis_seen_, axis * 2 + direction);
+}
+
+bool InputManager::ShouldLogProbeJoyAxis(int axis, int value) {
+  constexpr int kDeadzone = 16000;
+  if (std::abs(value) <= kDeadzone) return false;
+  const int direction = value > 0 ? 1 : 0;
+  return MarkProbeLogged(probe_joy_axis_seen_, axis * 2 + direction);
 }
 
 const BtnState &InputManager::Get(Button b) const {

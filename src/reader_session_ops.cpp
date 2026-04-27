@@ -39,7 +39,13 @@ bool OpenReaderSession(const std::string &book_path, const std::string &ext, Rea
     epub_progress.rotation = deps.ui.progress.rotation;
     epub_progress.zoom = deps.ui.progress.zoom;
     epub_progress.scroll_y = deps.ui.progress.scroll_y;
-    if (deps.epub_runtime.Open(deps.renderer, book_path, deps.screen_w, deps.screen_h, epub_progress)) {
+    const int flow_base_font_pt = deps.epub_flow_base_font_pt ? deps.epub_flow_base_font_pt() : 18;
+    const SDL_Color flow_background_color = deps.epub_flow_background_color ? deps.epub_flow_background_color()
+                                                                            : SDL_Color{250, 249, 244, 255};
+    const SDL_Color flow_font_color = deps.epub_flow_font_color ? deps.epub_flow_font_color()
+                                                                : SDL_Color{28, 28, 28, 255};
+    if (deps.epub_runtime.Open(deps.renderer, book_path, deps.screen_w, deps.screen_h, epub_progress,
+                               flow_base_font_pt, flow_background_color, flow_font_color)) {
       deps.close_text_reader();
       deps.pdf_runtime.Close();
       deps.ui.mode = ReaderMode::Epub;

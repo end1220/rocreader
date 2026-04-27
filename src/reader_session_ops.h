@@ -17,6 +17,9 @@ struct ReaderOpenDeps {
   ReaderUiState &ui;
   PdfRuntime &pdf_runtime;
   EpubRuntime &epub_runtime;
+  std::function<int()> epub_flow_base_font_pt;
+  std::function<SDL_Color()> epub_flow_background_color;
+  std::function<SDL_Color()> epub_flow_font_color;
   std::function<bool(const std::string &)> open_text_book;
   std::function<void()> close_text_reader;
   std::function<bool(const std::string &)> file_exists;

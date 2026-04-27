@@ -1,5 +1,6 @@
 #include "epub_cover_cache.h"
 
+#include "epub_flow_reader.h"
 #include "epub_reader.h"
 #include "image_decode.h"
 #include "runtime_log.h"
@@ -79,17 +80,26 @@ SDL_Texture *CreateEpubFirstImageCoverTexture(const std::string &doc_path,
     return cached;
   }
 
-  EpubReader epub;
-  EpubReader::CoverImage cover_image;
   std::string error;
-  if (!epub.ExtractCoverImage(doc_path, cover_image, error)) {
-    runtime_log::Line("[epub_cover] extract failed path=" + doc_path + " error=" + error);
-    return nullptr;
+  std::string cover_bytes;
+  if (EpubFlowReader::LooksLikeMixedLayout(doc_path)) {
+    if (!EpubFlowReader::ExtractFirstDocumentImage(doc_path, cover_bytes, error)) {
+      runtime_log::Line("[epub_cover] flow first image extract failed path=" + doc_path + " error=" + error);
+    }
+  }
+  if (cover_bytes.empty()) {
+    EpubReader epub;
+    EpubReader::CoverImage cover_image;
+    if (!epub.ExtractCoverImage(doc_path, cover_image, error)) {
+      runtime_log::Line("[epub_cover] extract failed path=" + doc_path + " error=" + error);
+      return nullptr;
+    }
+    cover_bytes.assign(cover_image.bytes.begin(), cover_image.bytes.end());
   }
 
   SDL_Surface *cover_surface =
-      deps.load_surface_from_memory(cover_image.bytes.data(), cover_image.bytes.size());
-  if (!cover_surface) cover_surface = DecodeSurfaceFromMemory(cover_image.bytes.data(), cover_image.bytes.size());
+      deps.load_surface_from_memory(cover_bytes.data(), cover_bytes.size());
+  if (!cover_surface) cover_surface = DecodeSurfaceFromMemory(cover_bytes.data(), cover_bytes.size());
   if (!cover_surface) {
     runtime_log::Line("[epub_cover] decode surface failed path=" + doc_path);
     return nullptr;

@@ -17,7 +17,9 @@ public:
   ~EpubRuntime();
 
   bool Open(SDL_Renderer *renderer, const std::string &path, int screen_w, int screen_h,
-            const EpubRuntimeProgress &initial_progress);
+            const EpubRuntimeProgress &initial_progress, int flow_base_font_pt = 18,
+            SDL_Color flow_background_color = SDL_Color{250, 249, 244, 255},
+            SDL_Color flow_font_color = SDL_Color{28, 28, 28, 255});
   void Close();
 
   bool IsOpen() const;
@@ -33,6 +35,8 @@ public:
   void ZoomOut();
   void ZoomIn();
   void ResetView();
+  void SetFlowBaseFontPointSize(int base_font_pt);
+  void SetFlowColors(SDL_Color background_color, SDL_Color font_color);
   void ScrollByPixels(int delta_px);
   void JumpByScreen(int direction);
   void SetPage(int page_index);
