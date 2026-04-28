@@ -18,6 +18,7 @@ export ROCREADER_ROOT="$APP_DIR"
 export ROCREADER_CARD1_ROOT="/mnt/mmc"
 export ROCREADER_CARD2_ROOT="/mnt/sdcard"
 export ROCREADER_FULL_INPUT_LOG="${ROCREADER_FULL_INPUT_LOG:-0}"
+export ROCREADER_LOG_MAX_BYTES="${ROCREADER_LOG_MAX_BYTES:-524288}"
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
   export XDG_RUNTIME_DIR="/tmp/rocreader-xdg"
 fi
@@ -36,7 +37,24 @@ set_runtime_libs() {
 }
 
 log_line() {
+  if [ "${ROCREADER_FULL_INPUT_LOG:-0}" = "1" ]; then
+    printf '%s\n' "$1" >>"$LOG_FILE"
+    return 0
+  fi
+  if [ "${ROCREADER_VERBOSE_LOG:-0}" != "1" ] && [ "${ROCREADER_DEBUG_LOG:-0}" != "1" ]; then
+    case "$1" in
+      *failed*|*Failed*|*FAILED*|*error*|*Error*|*ERROR*|*missing*|*Missing*|*MISSING*|*crash*|*Crash*|*CRASH*|*fatal*|*Fatal*|*FATAL*) ;;
+      *) return 0 ;;
+    esac
+  fi
   printf '%s\n' "$1" >>"$LOG_FILE"
+}
+
+trim_log_if_needed() {
+  [ "${ROCREADER_LOG_MAX_BYTES:-0}" -gt 0 ] 2>/dev/null || return 0
+  [ -f "$LOG_FILE" ] || return 0
+  size="$(wc -c <"$LOG_FILE" 2>/dev/null || printf '0')"
+  [ "$size" -le "$ROCREADER_LOG_MAX_BYTES" ] 2>/dev/null || : >"$LOG_FILE"
 }
 
 write_update_status() {
@@ -381,7 +399,10 @@ if [ ! -x "$BIN" ]; then
   exit 4
 fi
 
-log_line "===== $(date '+%F %T %Z') ====="
+trim_log_if_needed
+if [ "${ROCREADER_VERBOSE_LOG:-0}" = "1" ] || [ "${ROCREADER_DEBUG_LOG:-0}" = "1" ]; then
+  log_line "===== $(date '+%F %T %Z') ====="
+fi
 perform_pending_update_if_any
 ensure_screen_override_if_needed
 

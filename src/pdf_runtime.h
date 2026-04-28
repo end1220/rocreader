@@ -8,6 +8,7 @@ struct PdfRuntimeProgress {
   int page = 0;
   int rotation = 0;
   float zoom = 1.0f;
+  int scroll_x = 0;
   int scroll_y = 0;
 };
 
@@ -33,6 +34,7 @@ public:
   void ZoomOut();
   void ZoomIn();
   void ResetView();
+  bool PanHorizontalByPixels(int delta_px);
   void ScrollByPixels(int delta_px);
   void JumpByScreen(int direction);
   void SetPage(int page_index);

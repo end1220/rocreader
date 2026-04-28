@@ -33,6 +33,7 @@ enum class InputProfile {
   DesktopDefault,
   H700Default,
   H70034xxSp,
+  H70035xxH,
   TrimuiBrick,
 };
 

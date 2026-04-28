@@ -3,6 +3,7 @@
 #include <SDL.h>
 
 #include "filesystem_compat.h"
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -10,6 +11,15 @@
 #include <vector>
 
 namespace {
+bool UiAssetLogEnabled() {
+  auto enabled = [](const char *value) {
+    return value && *value && std::string(value) != "0";
+  };
+  return enabled(std::getenv("ROCREADER_UI_ASSET_LOG")) ||
+         enabled(std::getenv("ROCREADER_VERBOSE_LOG")) ||
+         enabled(std::getenv("ROCREADER_DEBUG_LOG"));
+}
+
 std::vector<std::string> BuildUiAssetLookupNames(const std::string &profile_name, const std::string &name) {
   std::vector<std::string> out;
   if (!profile_name.empty()) out.push_back(profile_name + "/" + name);
@@ -73,7 +83,9 @@ void LoadUiAsset(SDL_Texture *&slot, const std::string &name,
     }
   }
   if (found_path.empty()) {
-    std::cerr << "[native_h700] ui asset not found: " << name << "\n";
+    if (UiAssetLogEnabled()) {
+      std::cerr << "[native_h700] ui asset not found: " << name << "\n";
+    }
     return;
   }
   slot = deps.load_texture_from_file(deps.renderer, found_path.string());

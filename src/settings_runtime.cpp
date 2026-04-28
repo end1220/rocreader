@@ -160,6 +160,8 @@ void DrawKeyGuidePreview(const SettingsRuntimeRenderDeps &deps, SDL_Rect preview
   AppTextId profile_text_id = AppTextId::KeyGuideProfileOtherH700;
   if (deps.input_profile == InputProfile::H70034xxSp) {
     profile_text_id = AppTextId::KeyGuideProfile34xxSp;
+  } else if (deps.input_profile == InputProfile::H70035xxH) {
+    profile_text_id = AppTextId::KeyGuideProfile35xxH;
   } else if (deps.input_profile == InputProfile::TrimuiBrick) {
     profile_text_id = AppTextId::KeyGuideProfileTrimuiBrick;
   }

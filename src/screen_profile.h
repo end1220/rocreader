@@ -14,3 +14,4 @@ struct ScreenProfile {
 ScreenProfile DetectScreenProfile();
 std::string DetectDeviceModelToken();
 bool Uses34xxSpKeymap(const std::string &model_token);
+bool Uses35xxHKeymap(const std::string &model_token);

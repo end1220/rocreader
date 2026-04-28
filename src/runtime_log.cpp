@@ -9,6 +9,7 @@
 #include <iostream>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <system_error>
 
 namespace fs = std::filesystem;
@@ -17,6 +18,44 @@ namespace {
 std::mutex g_log_mutex;
 fs::path g_log_path;
 bool g_echo_stderr = false;
+
+bool EnvEnabled(const char *name) {
+  const char *value = std::getenv(name);
+  return value && *value && std::string(value) != "0";
+}
+
+std::string LowerAscii(std::string text) {
+  for (char &ch : text) {
+    if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+  }
+  return text;
+}
+
+bool VerboseRuntimeLogEnabled() {
+  return EnvEnabled("ROCREADER_RUNTIME_LOG") || EnvEnabled("ROCREADER_VERBOSE_LOG") ||
+         EnvEnabled("ROCREADER_DEBUG_LOG");
+}
+
+bool DefaultRuntimeLogKeep(const std::string &message) {
+  const std::string lower = LowerAscii(message);
+  constexpr const char *kNeedles[] = {
+      "fatal",
+      "crash",
+      "signal",
+      "exception",
+      "failed",
+      "error",
+      "warning",
+      "timeout",
+      "blocked",
+      "cannot ",
+      "invalid",
+  };
+  for (const char *needle : kNeedles) {
+    if (lower.find(needle) != std::string::npos) return true;
+  }
+  return false;
+}
 
 std::string NowText() {
   const auto now = std::chrono::system_clock::now();
@@ -74,6 +113,7 @@ void Init(const char *argv0) {
 }
 
 void Line(const std::string &message) {
+  if (!VerboseRuntimeLogEnabled() && !DefaultRuntimeLogKeep(message)) return;
   std::lock_guard<std::mutex> lock(g_log_mutex);
   const std::string line = "[" + NowText() + "] " + message;
   if (g_echo_stderr) {

@@ -472,8 +472,9 @@ find_so_in_libdir() {
 
   echo "[low_glibc] make clean"
   make clean
-  echo "[low_glibc] make"
-  make \
+  MAKE_JOBS="${MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
+  echo "[low_glibc] make -j$MAKE_JOBS"
+  make -j"$MAKE_JOBS" \
     CXX="$CXX_CMD" \
     PKG_CONFIG="$PKG_CMD" \
     REQUIRE_MUPDF="$REQUIRE_MUPDF" \
@@ -729,6 +730,7 @@ export ROCREADER_SCREEN_PROFILE="${ROCREADER_SCREEN_PROFILE:-1024x768}"
 export ROCREADER_SCREEN_W="${ROCREADER_SCREEN_W:-1024}"
 export ROCREADER_SCREEN_H="${ROCREADER_SCREEN_H:-768}"
 export ROCREADER_FULL_INPUT_LOG="${ROCREADER_FULL_INPUT_LOG:-0}"
+export ROCREADER_LOG_MAX_BYTES="${ROCREADER_LOG_MAX_BYTES:-524288}"
 export ROCREADER_PRELOAD_AVATARS="${ROCREADER_PRELOAD_AVATARS:-1}"
 export ROCREADER_UPDATE_CONTENTS_URL="${ROCREADER_UPDATE_CONTENTS_URL:-https://github.com/LPF970915/ROCreader/tree/main/TrimuiBrick/Downloads}"
 export ROCREADER_TXT_RESUME_STORE_PENDING_RAW="${ROCREADER_TXT_RESUME_STORE_PENDING_RAW:-0}"
@@ -757,7 +759,24 @@ set_runtime_libs() {
 }
 
 log_line() {
+  if [ "${ROCREADER_FULL_INPUT_LOG:-0}" = "1" ]; then
+    printf '%s\n' "$1" >>"$LOG_FILE"
+    return 0
+  fi
+  if [ "${ROCREADER_VERBOSE_LOG:-0}" != "1" ] && [ "${ROCREADER_DEBUG_LOG:-0}" != "1" ]; then
+    case "$1" in
+      *failed*|*Failed*|*FAILED*|*error*|*Error*|*ERROR*|*missing*|*Missing*|*MISSING*|*crash*|*Crash*|*CRASH*|*fatal*|*Fatal*|*FATAL*) ;;
+      *) return 0 ;;
+    esac
+  fi
   printf '%s\n' "$1" >>"$LOG_FILE"
+}
+
+trim_log_if_needed() {
+  [ "${ROCREADER_LOG_MAX_BYTES:-0}" -gt 0 ] 2>/dev/null || return 0
+  [ -f "$LOG_FILE" ] || return 0
+  size="$(wc -c <"$LOG_FILE" 2>/dev/null || printf '0')"
+  [ "$size" -le "$ROCREADER_LOG_MAX_BYTES" ] 2>/dev/null || : >"$LOG_FILE"
 }
 
 log_cmd() {
@@ -992,7 +1011,10 @@ if [ ! -x "$BIN" ]; then
   exit 4
 fi
 
-log_line "===== $(date '+%F %T %Z') ====="
+trim_log_if_needed
+if [ "${ROCREADER_VERBOSE_LOG:-0}" = "1" ] || [ "${ROCREADER_DEBUG_LOG:-0}" = "1" ]; then
+  log_line "===== $(date '+%F %T %Z') ====="
+fi
 perform_pending_update_if_any
 log_line "[launcher] package_tag=$PACKAGE_TAG"
 log_line "[launcher] app=$APP_DIR"

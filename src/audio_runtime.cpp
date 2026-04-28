@@ -6,9 +6,20 @@
 #include <iostream>
 #include <vector>
 
+namespace {
+bool VerboseLogEnabled() {
+  auto enabled = [](const char *value) {
+    return value && *value && std::string(value) != "0";
+  };
+  return enabled(std::getenv("ROCREADER_VERBOSE_LOG")) || enabled(std::getenv("ROCREADER_DEBUG_LOG"));
+}
+} // namespace
+
 bool SfxBank::Init(const std::filesystem::path &exe_path) {
   const std::filesystem::path root = ResolveSoundsRoot(exe_path);
-  std::cout << "[native_h700] sound root: " << filesystem_compat::LexicallyNormal(root).string() << "\n";
+  if (VerboseLogEnabled()) {
+    std::cout << "[native_h700] sound root: " << filesystem_compat::LexicallyNormal(root).string() << "\n";
+  }
 
 #ifdef HAVE_SDL2_MIXER
   if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024) == 0) {

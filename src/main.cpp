@@ -75,6 +75,13 @@
 #include "animation.h"
 
 namespace {
+bool VerboseLogEnabled() {
+  auto enabled = [](const char *value) {
+    return value && *value && std::string(value) != "0";
+  };
+  return enabled(std::getenv("ROCREADER_VERBOSE_LOG")) || enabled(std::getenv("ROCREADER_DEBUG_LOG"));
+}
+
 struct LayoutMetrics {
   int screen_w = 720;
   int screen_h = 480;
@@ -753,6 +760,7 @@ int main(int, char **argv) {
   const bool force_fullscreen = env_fullscreen && std::string(env_fullscreen) == "1";
   runtime_log::Line("main: DetectScreenProfile begin");
   const ScreenProfile screen_profile = DetectScreenProfile();
+  const bool verbose_log = VerboseLogEnabled();
 
   uint32_t win_flags = SDL_WINDOW_SHOWN;
 #if defined(__arm__) || defined(__aarch64__)
@@ -764,10 +772,12 @@ int main(int, char **argv) {
     win_flags |= SDL_WINDOW_FULLSCREEN;
   }
   g_layout = &SelectLayoutProfile(screen_profile.screen_w, screen_profile.screen_h);
-  std::cout << "[native_h700] screen detect: source=" << screen_profile.detection_source
-            << " detected=" << screen_profile.detected_w << "x" << screen_profile.detected_h
-            << " profile=" << screen_profile.profile_name
-            << " layout=" << Layout().screen_w << "x" << Layout().screen_h << "\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] screen detect: source=" << screen_profile.detection_source
+              << " detected=" << screen_profile.detected_w << "x" << screen_profile.detected_h
+              << " profile=" << screen_profile.profile_name
+              << " layout=" << Layout().screen_w << "x" << Layout().screen_h << "\n";
+  }
 
   runtime_log::Line(std::string("main: screen source=") + screen_profile.detection_source + " detected=" + std::to_string(screen_profile.detected_w) + "x" + std::to_string(screen_profile.detected_h) + " profile=" + screen_profile.profile_name);
   runtime_log::Line("main: SDL_CreateWindow begin");
@@ -798,10 +808,12 @@ int main(int, char **argv) {
   }
   SDL_RendererInfo renderer_info{};
   if (SDL_GetRendererInfo(renderer, &renderer_info) == 0) {
-    std::cout << "[native_h700] renderer: " << (renderer_info.name ? renderer_info.name : "unknown")
-              << " flags=0x" << std::hex << renderer_info.flags << std::dec
-              << " accelerated=" << ((renderer_info.flags & SDL_RENDERER_ACCELERATED) ? "yes" : "no")
-              << " vsync=" << ((renderer_info.flags & SDL_RENDERER_PRESENTVSYNC) ? "yes" : "no") << "\n";
+    if (verbose_log) {
+      std::cout << "[native_h700] renderer: " << (renderer_info.name ? renderer_info.name : "unknown")
+                << " flags=0x" << std::hex << renderer_info.flags << std::dec
+                << " accelerated=" << ((renderer_info.flags & SDL_RENDERER_ACCELERATED) ? "yes" : "no")
+                << " vsync=" << ((renderer_info.flags & SDL_RENDERER_PRESENTVSYNC) ? "yes" : "no") << "\n";
+    }
   }
   runtime_log::Line("main: SDL_CreateRenderer ok");
   const bool renderer_supports_target_textures = (renderer_info.flags & SDL_RENDERER_TARGETTEXTURE) != 0;
@@ -809,43 +821,55 @@ int main(int, char **argv) {
   std::vector<SDL_GameController *> opened_controllers;
   std::vector<SDL_Joystick *> opened_joysticks;
   const int joystick_count = SDL_NumJoysticks();
-  std::cout << "[native_h700] joysticks: " << joystick_count << "\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] joysticks: " << joystick_count << "\n";
+  }
   for (int i = 0; i < joystick_count; ++i) {
     const char *joy_name = SDL_JoystickNameForIndex(i);
-    std::cout << "[native_h700] joystick info: idx=" << i
-              << " name=" << (joy_name ? joy_name : "unknown")
-              << " is_gamecontroller=" << (SDL_IsGameController(i) ? "1" : "0") << "\n";
+    if (verbose_log) {
+      std::cout << "[native_h700] joystick info: idx=" << i
+                << " name=" << (joy_name ? joy_name : "unknown")
+                << " is_gamecontroller=" << (SDL_IsGameController(i) ? "1" : "0") << "\n";
+    }
     if (SDL_IsGameController(i)) {
       SDL_GameController *gc = SDL_GameControllerOpen(i);
       if (gc) {
         opened_controllers.push_back(gc);
         SDL_Joystick *js = SDL_GameControllerGetJoystick(gc);
-        std::cout << "[native_h700] opened gamecontroller idx=" << i
-                  << " name=" << (SDL_GameControllerName(gc) ? SDL_GameControllerName(gc) : "unknown")
-                  << " joystick_name=" << (js && SDL_JoystickName(js) ? SDL_JoystickName(js) : "unknown")
-                  << " instance=" << (js ? SDL_JoystickInstanceID(js) : -1)
-                  << " axes=" << (js ? SDL_JoystickNumAxes(js) : -1)
-                  << " buttons=" << (js ? SDL_JoystickNumButtons(js) : -1)
-                  << " hats=" << (js ? SDL_JoystickNumHats(js) : -1)
-                  << " balls=" << (js ? SDL_JoystickNumBalls(js) : -1) << "\n";
+        if (verbose_log) {
+          std::cout << "[native_h700] opened gamecontroller idx=" << i
+                    << " name=" << (SDL_GameControllerName(gc) ? SDL_GameControllerName(gc) : "unknown")
+                    << " joystick_name=" << (js && SDL_JoystickName(js) ? SDL_JoystickName(js) : "unknown")
+                    << " instance=" << (js ? SDL_JoystickInstanceID(js) : -1)
+                    << " axes=" << (js ? SDL_JoystickNumAxes(js) : -1)
+                    << " buttons=" << (js ? SDL_JoystickNumButtons(js) : -1)
+                    << " hats=" << (js ? SDL_JoystickNumHats(js) : -1)
+                    << " balls=" << (js ? SDL_JoystickNumBalls(js) : -1) << "\n";
+        }
         continue;
       }
-      std::cout << "[native_h700] open gamecontroller failed idx=" << i
-                << " err=" << SDL_GetError() << "\n";
+      if (verbose_log) {
+        std::cout << "[native_h700] open gamecontroller failed idx=" << i
+                  << " err=" << SDL_GetError() << "\n";
+      }
     }
     SDL_Joystick *js = SDL_JoystickOpen(i);
     if (js) {
       opened_joysticks.push_back(js);
-      std::cout << "[native_h700] opened joystick idx=" << i
-                << " name=" << (SDL_JoystickName(js) ? SDL_JoystickName(js) : "unknown")
-                << " instance=" << SDL_JoystickInstanceID(js)
-                << " axes=" << SDL_JoystickNumAxes(js)
-                << " buttons=" << SDL_JoystickNumButtons(js)
-                << " hats=" << SDL_JoystickNumHats(js)
-                << " balls=" << SDL_JoystickNumBalls(js) << "\n";
+      if (verbose_log) {
+        std::cout << "[native_h700] opened joystick idx=" << i
+                  << " name=" << (SDL_JoystickName(js) ? SDL_JoystickName(js) : "unknown")
+                  << " instance=" << SDL_JoystickInstanceID(js)
+                  << " axes=" << SDL_JoystickNumAxes(js)
+                  << " buttons=" << SDL_JoystickNumButtons(js)
+                  << " hats=" << SDL_JoystickNumHats(js)
+                  << " balls=" << SDL_JoystickNumBalls(js) << "\n";
+      }
     } else {
-      std::cout << "[native_h700] open joystick failed idx=" << i
-                << " err=" << SDL_GetError() << "\n";
+      if (verbose_log) {
+        std::cout << "[native_h700] open joystick failed idx=" << i
+                  << " err=" << SDL_GetError() << "\n";
+      }
     }
   }
 
@@ -901,11 +925,11 @@ int main(int, char **argv) {
       remember_texture_size,
   };
   UiAssetsLoadResult ui_assets_load_result = LoadUiAssets(ui_assets, ui_assets_loader_deps);
-  if (!ui_assets_load_result.ui_pack_hit.empty()) {
+  if (!ui_assets_load_result.ui_pack_hit.empty() && verbose_log) {
     std::cout << "[native_h700] ui pack: " << ui_assets_load_result.ui_pack_hit.string()
               << " assets=" << ui_assets_load_result.packed_asset_count << "\n";
   }
-  if (!ui_assets_load_result.ui_root_hit.empty()) {
+  if (!ui_assets_load_result.ui_root_hit.empty() && verbose_log) {
     std::cout << "[native_h700] ui root: " << ui_assets_load_result.ui_root_hit.string() << "\n";
   }
 
@@ -1023,20 +1047,22 @@ int main(int, char **argv) {
     std::error_code ec;
     std::filesystem::create_directories(removable_cover_thumb_cache_dir, ec);
   }
-  std::cout << "[native_h700] books roots:";
-  for (const auto &r : books_roots) std::cout << " " << r;
-  std::cout << "\n";
-  std::cout << "[native_h700] cover roots:";
-  for (const auto &r : cover_roots) std::cout << " " << r;
-  std::cout << "\n";
-  std::cout << "[native_h700] cover thumb cache dir: "
-            << filesystem_compat::LexicallyNormal(cover_thumb_cache_dir).string() << "\n";
-  std::cout << "[native_h700] removable cover thumb cache dir: "
-            << filesystem_compat::LexicallyNormal(removable_cover_thumb_cache_dir).string() << "\n";
-  std::cout << "[native_h700] txt layout cache dir: "
-            << filesystem_compat::LexicallyNormal(txt_layout_cache_dir).string() << "\n";
-  std::cout << "[native_h700] removable txt layout cache dir: "
-            << filesystem_compat::LexicallyNormal(removable_txt_layout_cache_dir).string() << "\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] books roots:";
+    for (const auto &r : books_roots) std::cout << " " << r;
+    std::cout << "\n";
+    std::cout << "[native_h700] cover roots:";
+    for (const auto &r : cover_roots) std::cout << " " << r;
+    std::cout << "\n";
+    std::cout << "[native_h700] cover thumb cache dir: "
+              << filesystem_compat::LexicallyNormal(cover_thumb_cache_dir).string() << "\n";
+    std::cout << "[native_h700] removable cover thumb cache dir: "
+              << filesystem_compat::LexicallyNormal(removable_cover_thumb_cache_dir).string() << "\n";
+    std::cout << "[native_h700] txt layout cache dir: "
+              << filesystem_compat::LexicallyNormal(txt_layout_cache_dir).string() << "\n";
+    std::cout << "[native_h700] removable txt layout cache dir: "
+              << filesystem_compat::LexicallyNormal(removable_txt_layout_cache_dir).string() << "\n";
+  }
 
   const std::filesystem::path keymap_path = resolve_runtime_file("native_keymap.ini");
 #if defined(__arm__) || defined(__aarch64__)
@@ -1052,7 +1078,10 @@ int main(int, char **argv) {
       use_trimui_brick_keymap
           ? InputProfile::TrimuiBrick
           : (use_h700_defaults
-                 ? (Uses34xxSpKeymap(device_model_token) ? InputProfile::H70034xxSp : InputProfile::H700Default)
+                 ? (Uses34xxSpKeymap(device_model_token)
+                        ? InputProfile::H70034xxSp
+                        : (Uses35xxHKeymap(device_model_token) ? InputProfile::H70035xxH
+                                                               : InputProfile::H700Default))
                  : InputProfile::DesktopDefault);
   const std::filesystem::path config_path = resolve_runtime_file("native_config.ini");
   const std::filesystem::path progress_path = resolve_runtime_file("native_progress.tsv");
@@ -1062,21 +1091,27 @@ int main(int, char **argv) {
   const std::filesystem::path power_script_path =
       (env_power_script && *env_power_script) ? std::filesystem::path(env_power_script)
                                               : std::filesystem::path("/mnt/mod/ctrl/pwr_new.sh");
-  std::cout << "[native_h700] keymap path: " << filesystem_compat::LexicallyNormal(keymap_path).string() << "\n";
-  std::cout << "[native_h700] config path: " << filesystem_compat::LexicallyNormal(config_path).string() << "\n";
-  std::cout << "[native_h700] power script path: " << filesystem_compat::LexicallyNormal(power_script_path).string() << "\n";
-  std::cout << "[native_h700] device model token: "
-            << (device_model_token.empty() ? std::string("unknown") : device_model_token) << "\n";
-  std::cout << "[native_h700] input profile: " << InputProfileName(input_profile) << "\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] keymap path: " << filesystem_compat::LexicallyNormal(keymap_path).string() << "\n";
+    std::cout << "[native_h700] config path: " << filesystem_compat::LexicallyNormal(config_path).string() << "\n";
+    std::cout << "[native_h700] power script path: " << filesystem_compat::LexicallyNormal(power_script_path).string() << "\n";
+    std::cout << "[native_h700] device model token: "
+              << (device_model_token.empty() ? std::string("unknown") : device_model_token) << "\n";
+    std::cout << "[native_h700] input profile: " << InputProfileName(input_profile) << "\n";
+  }
 
   runtime_log::Line(std::string("main: keymap path: ") + filesystem_compat::LexicallyNormal(keymap_path).string());
   runtime_log::Line(std::string("main: config path: ") + filesystem_compat::LexicallyNormal(config_path).string());
   runtime_log::Line(std::string("main: input profile: ") + InputProfileName(input_profile));
   InputManager input(keymap_path.string(), input_profile);
   runtime_log::Line(std::string("main: joy map: ") + input.DescribeJoyMap());
-  std::cout << "[native_h700] joy map: " << input.DescribeJoyMap() << "\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] joy map: " << input.DescribeJoyMap() << "\n";
+  }
   runtime_log::Line(std::string("main: pad map: ") + input.DescribePadMap());
-  std::cout << "[native_h700] pad map: " << input.DescribePadMap() << "\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] pad map: " << input.DescribePadMap() << "\n";
+  }
   ConfigStore config(config_path.string());
   if (!config.Get().audio) {
     config.Mutable().audio = true;
@@ -1187,18 +1222,22 @@ int main(int, char **argv) {
     if (sfx_ready) {
       sfx.SetVolume(runtime_sfx_volume);
     }
-    if (!sfx_ready) {
+    if (!sfx_ready && verbose_log) {
       std::cout << "[native_h700] sound: disabled (all audio backends failed)\n";
     }
-    std::cout << "[native_h700] sound init: backend=" << sfx.BackendName()
-              << " ready=" << (sfx_ready ? "1" : "0")
-              << " volume=" << runtime_sfx_volume << "\n";
+    if (verbose_log) {
+      std::cout << "[native_h700] sound init: backend=" << sfx.BackendName()
+                << " ready=" << (sfx_ready ? "1" : "0")
+                << " volume=" << runtime_sfx_volume << "\n";
+    }
     return sfx_ready;
   };
-  std::cout << "[native_h700] sound: config_audio=" << (config.Get().audio ? "1" : "0")
-            << " backend=" << sfx.BackendName()
-            << " ready=deferred"
-            << " volume=" << config.Get().sfx_volume << "\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] sound: config_audio=" << (config.Get().audio ? "1" : "0")
+              << " backend=" << sfx.BackendName()
+              << " ready=deferred"
+              << " volume=" << config.Get().sfx_volume << "\n";
+  }
   auto play_sfx = [&](SfxId id) {
     if (!config.Get().audio) return;
     ensure_sfx_ready();
@@ -1213,8 +1252,10 @@ int main(int, char **argv) {
   };
   PdfRuntime pdf_runtime;
   EpubRuntime epub_runtime;
-  std::cout << "[native_h700] epub comic backend: " << epub_runtime.BackendName()
-            << " (real_renderer=" << (epub_runtime.HasRealRenderer() ? "yes" : "no") << ")\n";
+  if (verbose_log) {
+    std::cout << "[native_h700] epub comic backend: " << epub_runtime.BackendName()
+              << " (real_renderer=" << (epub_runtime.HasRealRenderer() ? "yes" : "no") << ")\n";
+  }
   ShelfRenderCache shelf_render_cache;
   ShelfRuntimeState shelf_runtime;
   uint64_t &shelf_content_version = shelf_runtime.content_version;
@@ -1552,7 +1593,9 @@ int main(int, char **argv) {
 #endif
     clear_directory_files(txt_layout_cache_dir);
     clear_directory_files(removable_txt_layout_cache_dir);
-    std::cout << "[native_h700] runtime caches cleared: both cards cover thumbs + txt layouts/resume\n";
+    if (verbose_log) {
+      std::cout << "[native_h700] runtime caches cleared: both cards cover thumbs + txt layouts/resume\n";
+    }
   };
 
   auto collect_scanned_txt_files = [&]() {
@@ -1588,7 +1631,9 @@ int main(int, char **argv) {
     txt_transcode_job.total = txt_transcode_job.files.size();
     txt_transcode_job.active = txt_transcode_job.total > 0;
     txt_transcode_job.current_file.clear();
-    std::cout << "[native_h700] txt transcode queued: files=" << txt_transcode_job.total << "\n";
+    if (verbose_log) {
+      std::cout << "[native_h700] txt transcode queued: files=" << txt_transcode_job.total << "\n";
+    }
   };
 
   auto process_txt_transcode_step = [&]() {
@@ -1597,9 +1642,11 @@ int main(int, char **argv) {
       txt_transcode_job.active = false;
       txt_transcode_job.current_file.clear();
       clear_runtime_cache_files();
-      std::cout << "[native_h700] txt transcode finished: processed=" << txt_transcode_job.processed
-                << " converted=" << txt_transcode_job.converted
-                << " failed=" << txt_transcode_job.failed << "\n";
+      if (verbose_log || txt_transcode_job.failed > 0) {
+        std::cout << "[native_h700] txt transcode finished: processed=" << txt_transcode_job.processed
+                  << " converted=" << txt_transcode_job.converted
+                  << " failed=" << txt_transcode_job.failed << "\n";
+      }
       return;
     }
 
@@ -1623,17 +1670,21 @@ int main(int, char **argv) {
       std::cout << "[native_h700] txt transcode failed: " << file_path.string() << "\n";
     } else if (converted) {
       ++txt_transcode_job.converted;
-      std::cout << "[native_h700] txt transcoded: " << file_path.string()
-                << " encoding=" << detected_encoding << "\n";
+      if (verbose_log) {
+        std::cout << "[native_h700] txt transcoded: " << file_path.string()
+                  << " encoding=" << detected_encoding << "\n";
+      }
     }
     ++txt_transcode_job.processed;
     if (txt_transcode_job.processed >= txt_transcode_job.total) {
       txt_transcode_job.active = false;
       txt_transcode_job.current_file.clear();
       clear_runtime_cache_files();
-      std::cout << "[native_h700] txt transcode finished: processed=" << txt_transcode_job.processed
-                << " converted=" << txt_transcode_job.converted
-                << " failed=" << txt_transcode_job.failed << "\n";
+      if (verbose_log || txt_transcode_job.failed > 0) {
+        std::cout << "[native_h700] txt transcode finished: processed=" << txt_transcode_job.processed
+                  << " converted=" << txt_transcode_job.converted
+                  << " failed=" << txt_transcode_job.failed << "\n";
+      }
     }
   };
 
@@ -2133,8 +2184,10 @@ int main(int, char **argv) {
             title_marquee_wait = kTitleMarqueePauseSec;
             runtime_log::Line(std::string("boot: scan complete books=") + std::to_string(total_books) +
                               " cover_generate=" + std::to_string(cover_generate_count));
-            std::cout << "[native_h700] boot scan complete: books=" << total_books
-                      << " cover_generate=" << cover_generate_count << "\n";
+            if (verbose_log) {
+              std::cout << "[native_h700] boot scan complete: books=" << total_books
+                        << " cover_generate=" << cover_generate_count << "\n";
+            }
             state = State::Shelf;
           },
       };
@@ -2481,6 +2534,14 @@ int main(int, char **argv) {
           }
         } else if (reader_mode == ReaderMode::Pdf) {
           const int pdf_rotation = pdf_runtime.Progress().rotation;
+          const auto pdf_progress = pdf_runtime.Progress();
+          const bool pdf_zoomed = pdf_progress.zoom > 1.0005f;
+          auto pdf_pan_delta_for_page_button = [&](Button button) -> int {
+            const int page_action = PdfTapPageActionForButton(pdf_rotation, button);
+            if (page_action == 0) return 0;
+            const int pan_sign = (pdf_rotation == 180 || pdf_rotation == 270) ? -page_action : page_action;
+            return pan_sign * ScalePx(kReaderTapStepPx);
+          };
           const bool rotate_left_pressed = input.IsJustPressed(Button::L2);
           const bool rotate_right_pressed = input.IsJustPressed(Button::R2);
           if (rotate_left_pressed) {
@@ -2504,6 +2565,13 @@ int main(int, char **argv) {
             int bi = static_cast<int>(b);
             int long_dir = PdfScrollDirForButton(pdf_rotation, b);
             if (long_dir == 0) {
+              if (pdf_zoomed) {
+                const int pan_delta = pdf_pan_delta_for_page_button(b);
+                if (pan_delta != 0 && input.IsPressed(b) && input.HoldTime(b) >= 0.28f) {
+                  long_fired[bi] = true;
+                  pdf_runtime.PanHorizontalByPixels(pan_delta > 0 ? 20 : -20);
+                }
+              }
               hold_speed[bi] = 0.0f;
               continue;
             }
@@ -2526,6 +2594,13 @@ int main(int, char **argv) {
             if (tap_dir != 0) {
               pdf_runtime.ScrollByPixels(tap_dir * 60);
             } else {
+              if (pdf_zoomed) {
+                const int pan_delta = pdf_pan_delta_for_page_button(b);
+                if (pan_delta != 0) {
+                  pdf_runtime.PanHorizontalByPixels(pan_delta);
+                  continue;
+                }
+              }
               const int page_action = PdfTapPageActionForButton(pdf_rotation, b);
               if (page_action != 0) {
                 pdf_runtime.JumpByScreen(page_action);
@@ -2534,6 +2609,9 @@ int main(int, char **argv) {
           }
         } else {
           const int epub_rotation = epub_runtime.Progress().rotation;
+          const auto epub_progress = epub_runtime.Progress();
+          const bool flow_epub = std::string(epub_runtime.BackendName()) == "epub-flow";
+          const bool epub_zoomed = !flow_epub && epub_progress.zoom > 1.0005f;
           auto epub_scroll_dir_for_button = [&](Button button) -> int {
             if (epub_rotation == 0) {
               if (button == Button::Down) return 1;
@@ -2566,11 +2644,16 @@ int main(int, char **argv) {
             }
             return 0;
           };
+          auto epub_pan_delta_for_page_button = [&](Button button) -> int {
+            const int page_action = epub_tap_page_action_for_button(button);
+            if (page_action == 0) return 0;
+            const int pan_sign = (epub_rotation == 180 || epub_rotation == 270) ? -page_action : page_action;
+            return pan_sign * ScalePx(kReaderTapStepPx);
+          };
           const bool rotate_left_pressed = input.IsJustPressed(Button::L2);
           const bool rotate_right_pressed = input.IsJustPressed(Button::R2);
           const bool zoom_out_pressed = input.IsJustPressed(Button::L1);
           const bool zoom_in_pressed = input.IsJustPressed(Button::R1);
-          const bool flow_epub = std::string(epub_runtime.BackendName()) == "epub-flow";
           if (flow_epub && (rotate_left_pressed || rotate_right_pressed || zoom_out_pressed || zoom_in_pressed)) {
             if (!transient_message_dismissed_this_frame) {
               show_transient_message("EPUB图文混排模式禁用旋转和缩放", 3000, true);
@@ -2593,36 +2676,81 @@ int main(int, char **argv) {
             epub_runtime.ResetView();
           }
 
-          std::array<Button, 4> dirs = {Button::Up, Button::Down, Button::Left, Button::Right};
-          for (Button b : dirs) {
-            int bi = static_cast<int>(b);
-            int long_dir = epub_scroll_dir_for_button(b);
-            if (long_dir == 0) {
-              hold_speed[bi] = 0.0f;
-              continue;
+          if (flow_epub) {
+            std::array<Button, 2> flow_dirs = {Button::Up, Button::Down};
+            for (Button b : flow_dirs) {
+              int bi = static_cast<int>(b);
+              const int long_dir = (b == Button::Down) ? 1 : -1;
+              if (input.IsPressed(b) && input.HoldTime(b) >= 0.28f) {
+                long_fired[bi] = true;
+                epub_runtime.ScrollByPixels(long_dir * 20);
+              } else if (!input.IsPressed(b)) {
+                hold_speed[bi] = 0.0f;
+              }
             }
-            if (input.IsPressed(b) && input.HoldTime(b) >= 0.28f) {
-              long_fired[bi] = true;
-              epub_runtime.ScrollByPixels(long_dir * 20);
-            } else if (!input.IsPressed(b)) {
-              hold_speed[bi] = 0.0f;
-            }
-          }
 
-          for (Button b : dirs) {
-            int bi = static_cast<int>(b);
-            if (!input.IsJustReleased(b)) continue;
-            if (long_fired[bi]) {
-              long_fired[bi] = false;
-              continue;
-            }
-            const int tap_dir = epub_scroll_dir_for_button(b);
-            if (tap_dir != 0) {
+            for (Button b : flow_dirs) {
+              int bi = static_cast<int>(b);
+              if (!input.IsJustReleased(b)) continue;
+              if (long_fired[bi]) {
+                long_fired[bi] = false;
+                continue;
+              }
+              const int tap_dir = (b == Button::Down) ? 1 : -1;
               epub_runtime.ScrollByPixels(tap_dir * 60);
-            } else {
-              const int page_action = epub_tap_page_action_for_button(b);
-              if (page_action != 0) {
-                epub_runtime.JumpByScreen(page_action);
+            }
+
+            if (input.IsJustPressed(Button::Right)) {
+              epub_runtime.JumpByScreen(1);
+            } else if (input.IsJustPressed(Button::Left)) {
+              epub_runtime.JumpByScreen(-1);
+            }
+          } else {
+            std::array<Button, 4> dirs = {Button::Up, Button::Down, Button::Left, Button::Right};
+            for (Button b : dirs) {
+              int bi = static_cast<int>(b);
+              int long_dir = epub_scroll_dir_for_button(b);
+              if (long_dir == 0) {
+                if (epub_zoomed) {
+                  const int pan_delta = epub_pan_delta_for_page_button(b);
+                  if (pan_delta != 0 && input.IsPressed(b) && input.HoldTime(b) >= 0.28f) {
+                    long_fired[bi] = true;
+                    epub_runtime.PanHorizontalByPixels(pan_delta > 0 ? 20 : -20);
+                  }
+                }
+                hold_speed[bi] = 0.0f;
+                continue;
+              }
+              if (input.IsPressed(b) && input.HoldTime(b) >= 0.28f) {
+                long_fired[bi] = true;
+                epub_runtime.ScrollByPixels(long_dir * 20);
+              } else if (!input.IsPressed(b)) {
+                hold_speed[bi] = 0.0f;
+              }
+            }
+
+            for (Button b : dirs) {
+              int bi = static_cast<int>(b);
+              if (!input.IsJustReleased(b)) continue;
+              if (long_fired[bi]) {
+                long_fired[bi] = false;
+                continue;
+              }
+              const int tap_dir = epub_scroll_dir_for_button(b);
+              if (tap_dir != 0) {
+                epub_runtime.ScrollByPixels(tap_dir * 60);
+              } else {
+                if (epub_zoomed) {
+                  const int pan_delta = epub_pan_delta_for_page_button(b);
+                  if (pan_delta != 0) {
+                    epub_runtime.PanHorizontalByPixels(pan_delta);
+                    continue;
+                  }
+                }
+                const int page_action = epub_tap_page_action_for_button(b);
+                if (page_action != 0) {
+                  epub_runtime.JumpByScreen(page_action);
+                }
               }
             }
           }
@@ -3022,13 +3150,14 @@ int main(int, char **argv) {
     if (reader_mode == ReaderMode::Pdf && pdf_runtime.IsOpen()) {
       const PdfRuntimeProgress active_pdf = pdf_runtime.Progress();
       reader.page = active_pdf.page;
+      reader.scroll_x = active_pdf.scroll_x;
       reader.scroll_y = active_pdf.scroll_y;
       reader.zoom = active_pdf.zoom;
       reader.rotation = active_pdf.rotation;
     } else if (reader_mode == ReaderMode::Epub && epub_runtime.IsOpen()) {
       const EpubRuntimeProgress active_epub = epub_runtime.Progress();
       reader.page = active_epub.page;
-      reader.scroll_x = 0;
+      reader.scroll_x = active_epub.scroll_x;
       reader.scroll_y = active_epub.scroll_y;
       reader.zoom = active_epub.zoom;
       reader.rotation = active_epub.rotation;

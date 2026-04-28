@@ -12,19 +12,19 @@ constexpr int kSelectableRowCount = 4;
 constexpr int kTranscodeRow = 3;
 
 constexpr std::array<SDL_Color, kColorOptionCount> kBackgroundColors = {{
-    {248, 246, 239, 255},
+    {255, 255, 255, 255},
     {239, 226, 198, 255},
     {205, 220, 204, 255},
     {88, 102, 118, 255},
-    {22, 26, 32, 255},
+    {0, 0, 0, 255},
 }};
 
 constexpr std::array<SDL_Color, kColorOptionCount> kFontColors = {{
-    {242, 244, 248, 255},
+    {255, 255, 255, 255},
     {214, 219, 224, 255},
     {124, 134, 145, 255},
     {70, 78, 88, 255},
-    {18, 20, 24, 255},
+    {0, 0, 0, 255},
 }};
 
 constexpr std::array<int, 5> kFontPointSizes = {{18, 20, 22, 24, 26}};

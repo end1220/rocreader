@@ -3,11 +3,19 @@
 #include <SDL.h>
 
 #include "filesystem_compat.h"
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
 
 namespace {
+bool VerboseLogEnabled() {
+  auto enabled = [](const char *value) {
+    return value && *value && std::string(value) != "0";
+  };
+  return enabled(std::getenv("ROCREADER_VERBOSE_LOG")) || enabled(std::getenv("ROCREADER_DEBUG_LOG"));
+}
+
 void DestroyCachedTexture(SDL_Texture *&texture, const BeforeDestroyTextTextureFn &before_destroy) {
   if (!texture) return;
   if (before_destroy) before_destroy(texture);
@@ -110,7 +118,9 @@ void OpenUiFonts(UiTextCacheState &state, const std::filesystem::path &exe_path,
   };
   for (const auto &path : candidates) {
     if (!std::filesystem::exists(path)) continue;
-    std::cout << "[native_h700] ui font try: " << path << "\n";
+    if (VerboseLogEnabled()) {
+      std::cout << "[native_h700] ui font try: " << path << "\n";
+    }
     TTF_Font *font = TTF_OpenFont(path.c_str(), body_font_pt);
     if (!font) {
       std::cerr << "[native_h700] ui font open failed: body path=" << path
@@ -136,14 +146,16 @@ void OpenUiFonts(UiTextCacheState &state, const std::filesystem::path &exe_path,
     state.font = font;
     state.title_font = title_font;
     state.reader_font = reader_font;
-    std::cout << "[native_h700] ui font selected: " << path;
-    if (path.find("ui_font.ttf") != std::string::npos ||
-        path.find("ui_font_02.ttf") != std::string::npos) {
-      std::cout << " (project font)";
+    if (VerboseLogEnabled()) {
+      std::cout << "[native_h700] ui font selected: " << path;
+      if (path.find("ui_font.ttf") != std::string::npos ||
+          path.find("ui_font_02.ttf") != std::string::npos) {
+        std::cout << " (project font)";
+      }
+      std::cout << " body_pt=" << body_font_pt
+                << " title_pt=" << title_font_pt
+                << " reader_pt=" << reader_font_pt << "\n";
     }
-    std::cout << " body_pt=" << body_font_pt
-              << " title_pt=" << title_font_pt
-              << " reader_pt=" << reader_font_pt << "\n";
     break;
   }
   if (!state.font || !state.title_font || !state.reader_font) {

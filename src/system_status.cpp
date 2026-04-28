@@ -10,6 +10,13 @@
 #include <sstream>
 
 namespace {
+bool VerboseLogEnabled() {
+  auto enabled = [](const char *value) {
+    return value && *value && std::string(value) != "0";
+  };
+  return enabled(std::getenv("ROCREADER_VERBOSE_LOG")) || enabled(std::getenv("ROCREADER_DEBUG_LOG"));
+}
+
 std::string ReadSmallTextFileImpl(const std::filesystem::path &path) {
   std::ifstream in(path);
   if (!in) return {};
@@ -84,15 +91,19 @@ void SystemStatusMonitor::DiscoverBatteryPaths() {
   if (env_capacity && *env_capacity) battery_capacity_path_ = env_capacity;
   if (env_status && *env_status) battery_status_path_ = env_status;
   if (!battery_capacity_path_.empty() || !battery_status_path_.empty()) {
-    std::cout << "[native_h700] battery discover: env capacity=" << battery_capacity_path_.string()
-              << " status=" << battery_status_path_.string() << "\n";
+    if (VerboseLogEnabled()) {
+      std::cout << "[native_h700] battery discover: env capacity=" << battery_capacity_path_.string()
+                << " status=" << battery_status_path_.string() << "\n";
+    }
     return;
   }
 
   const std::filesystem::path root("/sys/class/power_supply");
   std::error_code ec;
   if (!std::filesystem::exists(root, ec) || ec) {
-    std::cout << "[native_h700] battery discover: power_supply root unavailable\n";
+    if (VerboseLogEnabled()) {
+      std::cout << "[native_h700] battery discover: power_supply root unavailable\n";
+    }
     return;
   }
 
@@ -122,8 +133,10 @@ void SystemStatusMonitor::DiscoverBatteryPaths() {
     if (!battery_capacity_path_.empty() || !battery_status_path_.empty()) break;
   }
 
-  std::cout << "[native_h700] battery discover: capacity=" << battery_capacity_path_.string()
-            << " status=" << battery_status_path_.string() << "\n";
+  if (VerboseLogEnabled()) {
+    std::cout << "[native_h700] battery discover: capacity=" << battery_capacity_path_.string()
+              << " status=" << battery_status_path_.string() << "\n";
+  }
 }
 
 void SystemStatusMonitor::UpdateClock() {

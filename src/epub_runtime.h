@@ -8,6 +8,7 @@ struct EpubRuntimeProgress {
   int page = 0;
   int rotation = 0;
   float zoom = 1.0f;
+  int scroll_x = 0;
   int scroll_y = 0;
 };
 
@@ -37,6 +38,7 @@ public:
   void ResetView();
   void SetFlowBaseFontPointSize(int base_font_pt);
   void SetFlowColors(SDL_Color background_color, SDL_Color font_color);
+  bool PanHorizontalByPixels(int delta_px);
   void ScrollByPixels(int delta_px);
   void JumpByScreen(int direction);
   void SetPage(int page_index);

@@ -70,10 +70,14 @@ std::string ReadSmallTextFile(const std::filesystem::path &path) {
 }
 
 void LogSystemControl(const std::string &message) {
-  const bool is_failure = message.find("failed") != std::string::npos;
-  const bool is_init = message.rfind("init ", 0) == 0;
-  const bool is_volume_set = message.rfind("set volume", 0) == 0;
-  if (!is_failure && !is_init && !is_volume_set) return;
+  auto enabled = [](const char *value) {
+    return value && *value && std::string(value) != "0";
+  };
+  if (!enabled(std::getenv("ROCREADER_SYSTEM_CONTROL_LOG")) &&
+      !enabled(std::getenv("ROCREADER_VERBOSE_LOG")) &&
+      !enabled(std::getenv("ROCREADER_DEBUG_LOG"))) {
+    return;
+  }
   std::cout << "[native_h700][system_controls] " << message << "\n";
 }
 

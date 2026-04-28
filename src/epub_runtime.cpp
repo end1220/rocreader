@@ -30,6 +30,7 @@ struct ViewState {
 
 struct LocationState {
   int page_num = 0;
+  int x_offset = 0;
   int y_offset = 0;
 };
 
@@ -303,6 +304,29 @@ struct EpubRuntime::Impl {
     return std::max(0, RenderedFlowExtent(state) - ViewportFlowExtent(state));
   }
 
+  int RenderedCrossExtent(const EpubState &state) const {
+    int page_w = 0;
+    int page_h = 0;
+    if (!reader.PageSize(state.location.page_num, page_w, page_h) || page_w <= 0 || page_h <= 0) {
+      return screen_w;
+    }
+    return std::max(1, static_cast<int>(std::lround(RenderScaleForState(state) *
+                                                    static_cast<float>(page_w))));
+  }
+
+  int ViewportCrossExtent(const EpubState &state) const {
+    const int rotation = NormalizeRotation(state.view.rotation);
+    return (rotation == 90 || rotation == 270) ? screen_h : screen_w;
+  }
+
+  int MaxXOffset(const EpubState &state) const {
+    return std::max(0, RenderedCrossExtent(state) - ViewportCrossExtent(state));
+  }
+
+  void ClampXOffset(EpubState &state) const {
+    state.location.x_offset = std::clamp(state.location.x_offset, 0, MaxXOffset(state));
+  }
+
   int TransitionStartYOffset(const EpubState &state) const { return MaxYOffset(state); }
 
   int NormalizeCarryPrev(const EpubState &state) const {
@@ -314,6 +338,7 @@ struct EpubRuntime::Impl {
 
   void ClampYOffsetCurrentPage(EpubState &state) const {
     ClampPage(state.location);
+    ClampXOffset(state);
     state.location.y_offset = std::clamp(state.location.y_offset, 0, MaxYOffset(state));
   }
 
@@ -337,9 +362,11 @@ struct EpubRuntime::Impl {
     if (!HasNextPage(state)) {
       state.location.y_offset = std::clamp(state.location.y_offset, 0, MaxYOffset(state));
     }
+    ClampXOffset(state);
   }
 
-  void RecenterAfterVisualChange(EpubState &state, const ViewState &old_view, int old_y_offset) const {
+  void RecenterAfterVisualChange(EpubState &state, const ViewState &old_view,
+                                 int old_x_offset, int old_y_offset) const {
     const int locked_page = state.location.page_num;
     const int old_rotation = NormalizeRotation(old_view.rotation);
     int page_w = 0;
@@ -363,6 +390,14 @@ struct EpubRuntime::Impl {
     const float old_center_y = static_cast<float>(old_y_offset) + static_cast<float>(old_view_extent) * 0.5f;
     const float old_anchor =
         (old_rendered_h > 0) ? (old_center_y / static_cast<float>(old_rendered_h)) : 0.5f;
+    const int old_rendered_cross = std::max(1, static_cast<int>(std::lround(
+                                                 old_fit_scale * old_view.zoom * static_cast<float>(page_w))));
+    const int old_cross_extent = (old_rotation == 90 || old_rotation == 270) ? screen_h : screen_w;
+    const int old_max_x = std::max(0, old_rendered_cross - old_cross_extent);
+    const float old_cross_anchor =
+        (old_max_x > 0) ? ((static_cast<float>(old_x_offset) + static_cast<float>(old_cross_extent) * 0.5f) /
+                           static_cast<float>(old_rendered_cross))
+                        : 0.5f;
 
     state.location.page_num = locked_page;
     ClampPage(state.location);
@@ -371,7 +406,19 @@ struct EpubRuntime::Impl {
     const float new_center_y = old_anchor * static_cast<float>(new_rendered_h);
     state.location.y_offset =
         static_cast<int>(std::lround(new_center_y - static_cast<float>(new_view_extent) * 0.5f));
+    const int new_rendered_cross = RenderedCrossExtent(state);
+    const int new_cross_extent = ViewportCrossExtent(state);
+    const float new_center_x = old_cross_anchor * static_cast<float>(new_rendered_cross);
+    state.location.x_offset =
+        static_cast<int>(std::lround(new_center_x - static_cast<float>(new_cross_extent) * 0.5f));
     ClampYOffsetCurrentPage(state);
+  }
+
+  bool PanHorizontalByPixels(int delta_px) {
+    if (!reader.IsOpen() || delta_px == 0) return false;
+    const int old_x = target_state.location.x_offset;
+    target_state.location.x_offset = std::clamp(target_state.location.x_offset + delta_px, 0, MaxXOffset(target_state));
+    return target_state.location.x_offset != old_x;
   }
 
   bool RenderPixelsForState(const EpubState &state, RenderResult &out, const std::atomic<bool> *cancel) {
@@ -763,6 +810,10 @@ struct EpubRuntime::Impl {
         dst.y = (screen_h - content_h) / 2;
         dst.h = content_h;
       }
+      const int max_cross_y = std::max(0, content_h - src.h);
+      if (max_cross_y > 0) {
+        src.y = std::clamp(state.location.x_offset, 0, max_cross_y);
+      }
 
       if (content_w > screen_w) {
         src.w = screen_w;
@@ -783,6 +834,10 @@ struct EpubRuntime::Impl {
       } else {
         dst.x = (screen_w - content_w) / 2;
         dst.w = content_w;
+      }
+      const int max_cross_x = std::max(0, content_w - src.w);
+      if (max_cross_x > 0) {
+        src.x = std::clamp(state.location.x_offset, 0, max_cross_x);
       }
 
       if (content_h > screen_h) {
@@ -942,6 +997,7 @@ bool EpubRuntime::Open(SDL_Renderer *renderer,
   impl_->target_state.view.zoom = std::max(kMinZoom, std::min(kMaxZoom, initial_progress.zoom));
   impl_->target_state.view.rotation = NormalizeRotation(initial_progress.rotation);
   impl_->target_state.location.page_num = std::max(0, initial_progress.page);
+  impl_->target_state.location.x_offset = std::max(0, initial_progress.scroll_x);
   impl_->target_state.location.y_offset = std::max(0, initial_progress.scroll_y);
   impl_->NormalizeState(impl_->target_state);
 
@@ -1122,6 +1178,7 @@ void EpubRuntime::Draw(SDL_Renderer *renderer) const {
   const bool exact = impl_->display_state.SameVisualState(impl_->target_state);
   if (exact) {
     EpubState draw_state = impl_->display_state;
+    draw_state.location.x_offset = impl_->target_state.location.x_offset;
     draw_state.location.y_offset = impl_->target_state.location.y_offset;
     if (impl_->DrawContinuousNextPage(renderer, draw_state)) return;
     impl_->DrawVisibleSource(renderer, impl_->visible_source, draw_state);
@@ -1139,10 +1196,11 @@ void EpubRuntime::RotateLeft() {
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
+  const int old_x_offset = impl_->target_state.location.x_offset;
   const int old_y_offset = impl_->target_state.location.y_offset;
   impl_->target_state.view.rotation = NormalizeRotation(impl_->target_state.view.rotation + 270);
   if (impl_->target_state.view.rotation == old_view.rotation) return;
-  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_y_offset);
+  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_x_offset, old_y_offset);
   if (impl_->TryUseCachedTarget()) return;
   SDL_LockMutex(impl_->mutex);
   impl_->DelayVisualRenderLocked();
@@ -1157,10 +1215,11 @@ void EpubRuntime::RotateRight() {
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
+  const int old_x_offset = impl_->target_state.location.x_offset;
   const int old_y_offset = impl_->target_state.location.y_offset;
   impl_->target_state.view.rotation = NormalizeRotation(impl_->target_state.view.rotation + 90);
   if (impl_->target_state.view.rotation == old_view.rotation) return;
-  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_y_offset);
+  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_x_offset, old_y_offset);
   if (impl_->TryUseCachedTarget()) return;
   SDL_LockMutex(impl_->mutex);
   impl_->DelayVisualRenderLocked();
@@ -1175,10 +1234,11 @@ void EpubRuntime::ZoomOut() {
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
+  const int old_x_offset = impl_->target_state.location.x_offset;
   const int old_y_offset = impl_->target_state.location.y_offset;
   impl_->target_state.view.zoom = std::max(kMinZoom, impl_->target_state.view.zoom - kZoomStep);
   if (std::abs(impl_->target_state.view.zoom - old_view.zoom) < 0.0005f) return;
-  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_y_offset);
+  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_x_offset, old_y_offset);
   if (impl_->TryUseCachedTarget()) return;
   SDL_LockMutex(impl_->mutex);
   impl_->DelayVisualRenderLocked();
@@ -1193,10 +1253,11 @@ void EpubRuntime::ZoomIn() {
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
+  const int old_x_offset = impl_->target_state.location.x_offset;
   const int old_y_offset = impl_->target_state.location.y_offset;
   impl_->target_state.view.zoom = std::min(kMaxZoom, impl_->target_state.view.zoom + kZoomStep);
   if (std::abs(impl_->target_state.view.zoom - old_view.zoom) < 0.0005f) return;
-  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_y_offset);
+  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_x_offset, old_y_offset);
   if (impl_->TryUseCachedTarget()) return;
   SDL_LockMutex(impl_->mutex);
   impl_->DelayVisualRenderLocked();
@@ -1211,10 +1272,12 @@ void EpubRuntime::ResetView() {
   if (!impl_ || !impl_->reader.IsOpen()) return;
   impl_->MarkInteraction();
   const ViewState old_view = impl_->target_state.view;
+  const int old_x_offset = impl_->target_state.location.x_offset;
   const int old_y_offset = impl_->target_state.location.y_offset;
   impl_->target_state.view.zoom = 1.0f;
+  impl_->target_state.location.x_offset = 0;
   if (std::abs(impl_->target_state.view.zoom - old_view.zoom) < 0.0005f) return;
-  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_y_offset);
+  impl_->RecenterAfterVisualChange(impl_->target_state, old_view, old_x_offset, old_y_offset);
   if (impl_->TryUseCachedTarget()) return;
   SDL_LockMutex(impl_->mutex);
   impl_->DelayVisualRenderLocked();
@@ -1233,6 +1296,13 @@ void EpubRuntime::SetFlowColors(SDL_Color background_color, SDL_Color font_color
   }
 }
 
+bool EpubRuntime::PanHorizontalByPixels(int delta_px) {
+  if (impl_ && impl_->flow_mode) return false;
+  if (!impl_ || !impl_->reader.IsOpen()) return false;
+  impl_->MarkInteraction();
+  return impl_->PanHorizontalByPixels(delta_px);
+}
+
 void EpubRuntime::ScrollByPixels(int delta_px) {
   if (impl_ && impl_->flow_mode) {
     impl_->flow_reader.ScrollByPixels(delta_px);
@@ -1246,6 +1316,7 @@ void EpubRuntime::ScrollByPixels(int delta_px) {
   impl_->target_state.location.y_offset += delta_px;
   impl_->NormalizeState(impl_->target_state);
   if (impl_->target_state.location.page_num != old_page) {
+    impl_->target_state.location.x_offset = 0;
     if (impl_->TryUseCachedTarget()) return;
     SDL_LockMutex(impl_->mutex);
     impl_->RequestRenderLocked();
@@ -1272,6 +1343,7 @@ void EpubRuntime::JumpByScreen(int direction) {
   impl_->target_state.location.y_offset += direction * impl_->screen_h;
   impl_->NormalizeState(impl_->target_state);
   if (impl_->target_state.location.page_num != old_page) {
+    impl_->target_state.location.x_offset = 0;
     if (impl_->TryUseCachedTarget()) return;
     SDL_LockMutex(impl_->mutex);
     impl_->RequestRenderLocked();
@@ -1298,6 +1370,7 @@ void EpubRuntime::SetPage(int page_index) {
   const int old_page = impl_->target_state.location.page_num;
   impl_->preferred_prefetch_dir = (clamped_page >= old_page) ? 1 : -1;
   impl_->target_state.location.page_num = clamped_page;
+  impl_->target_state.location.x_offset = 0;
   impl_->target_state.location.y_offset = 0;
   impl_->NormalizeState(impl_->target_state);
   if (impl_->TryUseCachedTarget()) return;
@@ -1331,6 +1404,7 @@ EpubRuntimeProgress EpubRuntime::Progress() const {
   out.page = impl_->target_state.location.page_num;
   out.rotation = impl_->target_state.view.rotation;
   out.zoom = impl_->target_state.view.zoom;
+  out.scroll_x = impl_->target_state.location.x_offset;
   out.scroll_y = impl_->target_state.location.y_offset;
   return out;
 }

@@ -54,6 +54,7 @@ const char *InputProfileName(InputProfile profile) {
   case InputProfile::DesktopDefault: return "desktop-default";
   case InputProfile::H700Default: return "h700-default";
   case InputProfile::H70034xxSp: return "h700-34xxsp";
+  case InputProfile::H70035xxH: return "h700-35xxh";
   case InputProfile::TrimuiBrick: return "trimui-brick";
   default: return "unknown";
   }
@@ -106,10 +107,8 @@ void InputManager::BeginFrame(float dt) {
 void InputManager::HandleEvent(const SDL_Event &e) {
   if (e.type == SDL_KEYDOWN && !e.key.repeat) {
     const Button mapped = KeyToButton(e.key.keysym.sym);
-    if (input_profile_ == InputProfile::TrimuiBrick || ShouldLogProbeKey(e.key.keysym.scancode)) {
-      std::cout << "[native_h700] "
-                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
-                << "type=" << SdlEventName(e.type)
+    if (ShouldLogProbeKey(e.key.keysym.scancode)) {
+      std::cout << "[native_h700] input probe: type=" << SdlEventName(e.type)
                 << " key=" << static_cast<int>(e.key.keysym.sym)
                 << " scancode=" << static_cast<int>(e.key.keysym.scancode)
                 << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
@@ -117,30 +116,16 @@ void InputManager::HandleEvent(const SDL_Event &e) {
     SetDown(mapped, true);
   } else if (e.type == SDL_KEYUP) {
     const Button mapped = KeyToButton(e.key.keysym.sym);
-    if (input_profile_ == InputProfile::TrimuiBrick && !full_input_log_enabled_) {
-      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-                << " key=" << static_cast<int>(e.key.keysym.sym)
-                << " scancode=" << static_cast<int>(e.key.keysym.scancode)
-                << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
-    }
     SetDown(mapped, false);
   } else if (e.type == SDL_CONTROLLERBUTTONDOWN) {
     const Button mapped = PadToButton(e.cbutton.button);
-    if (!full_input_log_enabled_ || ShouldLogProbePadButton(e.cbutton.button)) {
-      std::cout << "[native_h700] "
-                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
-                << "type=" << SdlEventName(e.type)
+    if (ShouldLogProbePadButton(e.cbutton.button)) {
+      std::cout << "[native_h700] input probe: type=" << SdlEventName(e.type)
                 << " pad_button=" << static_cast<int>(e.cbutton.button)
                 << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
     }
     SetDown(PadToButton(e.cbutton.button), true);
   } else if (e.type == SDL_CONTROLLERBUTTONUP) {
-    const Button mapped = PadToButton(e.cbutton.button);
-    if (!full_input_log_enabled_) {
-      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-                << " pad_button=" << static_cast<int>(e.cbutton.button)
-                << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
-    }
     SetDown(PadToButton(e.cbutton.button), false);
   } else if (e.type == SDL_CONTROLLERAXISMOTION) {
     constexpr int kDeadzone = 16000;
@@ -173,28 +158,18 @@ void InputManager::HandleEvent(const SDL_Event &e) {
     }
   } else if (e.type == SDL_JOYBUTTONDOWN) {
     const Button mapped = JoyButtonToButton(e.jbutton.button);
-    if (!full_input_log_enabled_ || ShouldLogProbeJoyButton(e.jbutton.button)) {
-      std::cout << "[native_h700] "
-                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
-                << "type=" << SdlEventName(e.type)
+    if (ShouldLogProbeJoyButton(e.jbutton.button)) {
+      std::cout << "[native_h700] input probe: type=" << SdlEventName(e.type)
                 << " joy_button=" << static_cast<int>(e.jbutton.button)
                 << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
     }
     SetDown(JoyButtonToButton(e.jbutton.button), true);
   } else if (e.type == SDL_JOYBUTTONUP) {
-    const Button mapped = JoyButtonToButton(e.jbutton.button);
-    if (!full_input_log_enabled_) {
-      std::cout << "[native_h700] input event: type=" << SdlEventName(e.type)
-                << " joy_button=" << static_cast<int>(e.jbutton.button)
-                << " mapped=" << ButtonNameOrInvalid(mapped) << "\n";
-    }
     SetDown(JoyButtonToButton(e.jbutton.button), false);
   } else if (e.type == SDL_JOYHATMOTION) {
     const uint8_t v = e.jhat.value;
-    if (!full_input_log_enabled_ || ShouldLogProbeHat(e.jhat.hat, v)) {
-      std::cout << "[native_h700] "
-                << (full_input_log_enabled_ ? "input probe: " : "input event: ")
-                << "type=" << SdlEventName(e.type)
+    if (ShouldLogProbeHat(e.jhat.hat, v)) {
+      std::cout << "[native_h700] input probe: type=" << SdlEventName(e.type)
                 << " hat=" << static_cast<int>(e.jhat.hat)
                 << " value=" << static_cast<int>(v) << "\n";
     }
@@ -416,6 +391,20 @@ void InputManager::LoadDefaultJoyMap(InputProfile input_profile) {
     joy_map_[11] = InvalidButton();
     joy_map_[12] = Button::Select;
     joy_map_[13] = InvalidButton();
+    joy_map_[14] = Button::Power;
+    joy_map_[15] = Button::VolDown;
+    joy_map_[16] = Button::VolUp;
+  } else if (input_profile == InputProfile::H70035xxH) {
+    joy_map_[2] = Button::Y;
+    joy_map_[3] = Button::X;
+    joy_map_[6] = Button::Select;
+    joy_map_[7] = Button::Start;
+    joy_map_[8] = Button::Menu;
+    joy_map_[9] = Button::Menu;
+    joy_map_[10] = Button::L2;
+    joy_map_[11] = Button::R2;
+    joy_map_[12] = Button::Select;
+    joy_map_[13] = Button::Start;
     joy_map_[14] = Button::Power;
     joy_map_[15] = Button::VolDown;
     joy_map_[16] = Button::VolUp;

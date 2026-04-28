@@ -438,3 +438,7 @@ bool Uses34xxSpKeymap(const std::string &model_token) {
   // Only the SP hardware should use the dedicated 34xxSP key layout.
   return model_token == "rg34xx-sp";
 }
+
+bool Uses35xxHKeymap(const std::string &model_token) {
+  return model_token == "rg35xx-h";
+}

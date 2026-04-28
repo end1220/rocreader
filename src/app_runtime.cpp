@@ -5,11 +5,21 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 namespace {
 bool SystemVolumeSfxFollowsHardware() {
   const char *env = std::getenv("ROCREADER_SYSTEM_VOLUME_SFX_FOLLOWS_HARDWARE");
   return env && (*env == '1' || *env == 'y' || *env == 'Y' || *env == 't' || *env == 'T');
+}
+
+bool VerboseLogEnabled() {
+  const char *debug = std::getenv("ROCREADER_DEBUG_LOG");
+  const char *verbose = std::getenv("ROCREADER_VERBOSE_LOG");
+  auto enabled = [](const char *value) {
+    return value && *value && std::string(value) != "0";
+  };
+  return enabled(debug) || enabled(verbose);
 }
 } // namespace
 
@@ -38,12 +48,16 @@ bool VolumeController::RefreshPercent(int &out_percent) {
 
 bool VolumeController::AdjustBySteps(int delta_steps, int &out_percent) {
   if (!prefer_system_) return false;
-  std::cout << "[native_h700] volume adjust request: mode=system steps=" << delta_steps << "\n";
+  if (VerboseLogEnabled()) {
+    std::cout << "[native_h700] volume adjust request: mode=system steps=" << delta_steps << "\n";
+  }
   if (!service_.AdjustVolume(delta_steps, levels_) || !levels_.volume.available) return false;
   out_percent = std::clamp((levels_.volume.level * 100) / std::max(1, levels_.volume.max_level), 0, 100);
-  std::cout << "[native_h700] volume adjust success: percent=" << out_percent
-            << " level=" << levels_.volume.level
-            << " max=" << levels_.volume.max_level << "\n";
+  if (VerboseLogEnabled()) {
+    std::cout << "[native_h700] volume adjust success: percent=" << out_percent
+              << " level=" << levels_.volume.level
+              << " max=" << levels_.volume.max_level << "\n";
+  }
   return true;
 }
 
@@ -60,10 +74,12 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
   const bool vol_down_pressed = input.IsJustPressed(Button::VolDown) || input.IsRepeated(Button::VolDown);
   if (!vol_up_pressed && !vol_down_pressed) return;
 
-  std::cout << "[native_h700] volume handler: up=" << (vol_up_pressed ? "1" : "0")
-            << " down=" << (vol_down_pressed ? "1" : "0")
-            << " prefer_system=" << (volume_controller.UsesSystemVolume() ? "1" : "0")
-            << " app_volume=" << config.Get().sfx_volume << "\n";
+  if (VerboseLogEnabled()) {
+    std::cout << "[native_h700] volume handler: up=" << (vol_up_pressed ? "1" : "0")
+              << " down=" << (vol_down_pressed ? "1" : "0")
+              << " prefer_system=" << (volume_controller.UsesSystemVolume() ? "1" : "0")
+              << " app_volume=" << config.Get().sfx_volume << "\n";
+  }
 
   bool system_volume_changed = false;
   int system_percent = state.volume_display_percent;
@@ -72,11 +88,11 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
     if (vol_down_pressed) system_volume_changed = volume_controller.AdjustDown() || system_volume_changed;
     const bool system_volume_read = volume_controller.RefreshPercent(system_percent);
     system_volume_changed = system_volume_changed || system_volume_read;
-    if (system_volume_changed) {
+    if (system_volume_changed && VerboseLogEnabled()) {
       std::cout << "[native_h700] system volume: "
                 << (vol_up_pressed && vol_down_pressed ? "unchanged-step" : (vol_up_pressed ? "up" : "down"))
                 << " percent=" << system_percent << "\n";
-    } else if (!state.warned_system_volume_fallback) {
+    } else if (!system_volume_changed && !state.warned_system_volume_fallback && VerboseLogEnabled()) {
       state.warned_system_volume_fallback = true;
       std::cout << "[native_h700] system volume control unavailable\n";
     }
@@ -114,7 +130,9 @@ void HandleVolumeControls(AppUiState &state, const InputManager &input, uint32_t
   if (cfg.sfx_volume != old_volume) {
     if (apply_sfx_volume) apply_sfx_volume(cfg.sfx_volume);
     config.MarkDirty();
-    std::cout << "[native_h700] sound volume: " << cfg.sfx_volume << "\n";
+    if (VerboseLogEnabled()) {
+      std::cout << "[native_h700] sound volume: " << cfg.sfx_volume << "\n";
+    }
     if (cfg.audio && cfg.sfx_volume > 0 && play_change_sfx) {
       play_change_sfx();
     }
