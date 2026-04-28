@@ -13,9 +13,9 @@ struct TxtSettingsState {
   bool panel_active = false;
   int selected_row = 0;
   int selected_option = 0;
-  int background_color = 0;
+  int background_color = 4;
   int font_color = 0;
-  int font_size_level = 2;
+  int font_size_level = 3;
 };
 
 struct TxtSettingsCallbacks {

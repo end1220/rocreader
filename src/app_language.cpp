@@ -34,7 +34,7 @@ constexpr std::array<const char *, kTextCount> kTextZh = {{
     u8"\u6309\u952e\u8bf4\u660e",
     u8"\u6e05\u9664\u5386\u53f2",
     u8"\u6e05\u9664\u7f13\u5b58",
-    u8"TXT\u8bbe\u7f6e",
+    u8"\u6587\u672c\u8bbe\u7f6e",
     u8"\u8d21\u732e\u8005\u5934\u50cf",
     u8"\u8054\u7cfb\u6211",
     u8"\u7248\u672c\u66f4\u65b0",
@@ -88,7 +88,7 @@ constexpr std::array<const char *, kTextCount> kTextZhHant = {{
     u8"\u6309\u9375\u8aaa\u660e",
     u8"\u6e05\u9664\u6b77\u53f2",
     u8"\u6e05\u9664\u5feb\u53d6",
-    u8"TXT\u8a2d\u5b9a",
+    u8"\u6587\u672c\u8a2d\u5b9a",
     u8"\u8ca2\u737b\u8005\u982d\u50cf",
     u8"\u806f\u7d61\u6211",
     u8"\u7248\u672c\u66f4\u65b0",
@@ -142,7 +142,7 @@ constexpr std::array<const char *, kTextCount> kTextEn = {{
     "Key Guide",
     "Clear History",
     "Clear Cache",
-    "TXT Settings",
+    "Text Settings",
     "Contributors",
     "Contact Me",
     "Updates",
@@ -191,7 +191,7 @@ constexpr std::array<const char *, kTextCount> kTextEn = {{
 }};
 
 constexpr std::array<const char *, kTextCount> kTextEs = {{
-    "ROCreader", "Sistema", "Guia teclas", "Borrar historial", "Borrar cache", "TXT", "Colaboradores",
+    "ROCreader", "Sistema", "Guia teclas", "Borrar historial", "Borrar cache", "Texto", "Colaboradores",
     "Contacto", "Actualizaciones", "Salir", "Pulsa A para salir", "Sonido teclas", "Brillo",
     "Susp. automatica", "Temporizador", "Idioma sistema", "Activado", "Desactivado", "Borrar",
     "Borrar cache", "Borrar historial", "Fondo", "Color fuente", "Tamano fuente", "TXT",
@@ -207,7 +207,7 @@ constexpr std::array<const char *, kTextCount> kTextEs = {{
 }};
 
 constexpr std::array<const char *, kTextCount> kTextFr = {{
-    "ROCreader", "Systeme", "Guide touches", "Effacer hist.", "Vider cache", "TXT", "Contributeurs",
+    "ROCreader", "Systeme", "Guide touches", "Effacer hist.", "Vider cache", "Texte", "Contributeurs",
     "Contact", "Mises a jour", "Quitter", "Appuyez sur A pour quitter", "Son touches", "Luminosite",
     "Veille auto", "Minuteur veille", "Langue systeme", "Actif", "Arret", "Effacer", "Vider cache",
     "Effacer hist.", "Fond", "Couleur texte", "Taille police", "TXT", "Demarrer", "Version actuelle",
@@ -223,7 +223,7 @@ constexpr std::array<const char *, kTextCount> kTextFr = {{
 }};
 
 constexpr std::array<const char *, kTextCount> kTextDe = {{
-    "ROCreader", "System", "Tastenhilfe", "Verlauf loschen", "Cache leeren", "TXT", "Mitwirkende",
+    "ROCreader", "System", "Tastenhilfe", "Verlauf loschen", "Cache leeren", "Text", "Mitwirkende",
     "Kontakt", "Updates", "Beenden", "A drucken zum Beenden", "Tastenton", "Helligkeit",
     "Auto-Ruhe", "Ruhe-Timer", "Systemsprache", "Ein", "Aus", "Loschen", "Cache leeren",
     "Verlauf loschen", "Hintergrund", "Schriftfarbe", "Schriftgrosse", "TXT", "Start",
@@ -240,7 +240,7 @@ constexpr std::array<const char *, kTextCount> kTextDe = {{
 
 constexpr std::array<const char *, kTextCount> kTextJa = {{
     "ROCreader", u8"\u30b7\u30b9\u30c6\u30e0", u8"\u30ad\u30fc\u30ac\u30a4\u30c9",
-    u8"\u5c65\u6b74\u3092\u6d88\u53bb", u8"\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u6d88\u53bb", u8"TXT\u8a2d\u5b9a",
+    u8"\u5c65\u6b74\u3092\u6d88\u53bb", u8"\u30ad\u30e3\u30c3\u30b7\u30e5\u3092\u6d88\u53bb", u8"\u30c6\u30ad\u30b9\u30c8\u8a2d\u5b9a",
     u8"\u8ca2\u732e\u8005", u8"\u9023\u7d61\u5148", u8"\u66f4\u65b0", u8"\u7d42\u4e86",
     u8"A\u3067\u5b8c\u5168\u7d42\u4e86", u8"\u30ad\u30fc\u97f3", u8"\u660e\u308b\u3055",
     u8"\u81ea\u52d5\u30b9\u30ea\u30fc\u30d7", u8"\u30b9\u30ea\u30fc\u30d7\u9593\u9694",
@@ -270,7 +270,7 @@ constexpr std::array<const char *, kTextCount> kTextJa = {{
 
 constexpr std::array<const char *, kTextCount> kTextKo = {{
     "ROCreader", u8"\uc2dc\uc2a4\ud15c", u8"\ud0a4 \uac00\uc774\ub4dc", u8"\uae30\ub85d \uc9c0\uc6b0\uae30",
-    u8"\uce90\uc2dc \uc9c0\uc6b0\uae30", "TXT", u8"\uae30\uc5ec\uc790", u8"\uc5f0\ub77d",
+    u8"\uce90\uc2dc \uc9c0\uc6b0\uae30", u8"\ud14d\uc2a4\ud2b8 \uc124\uc815", u8"\uae30\uc5ec\uc790", u8"\uc5f0\ub77d",
     u8"\uc5c5\ub370\uc774\ud2b8", u8"\uc885\ub8cc", u8"A\ub97c \ub20c\ub7ec \uc644\uc804 \uc885\ub8cc",
     u8"\ud0a4 \uc18c\ub9ac", u8"\ubc1d\uae30", u8"\uc790\ub3d9 \uc218\uba74", u8"\uc218\uba74 \uc2dc\uac04",
     u8"\uc2dc\uc2a4\ud15c \uc5b8\uc5b4", u8"\ucf1c\uae30", u8"\ub044\uae30", u8"\uc9c0\uc6b0\uae30",
@@ -297,7 +297,7 @@ constexpr std::array<const char *, kTextCount> kTextKo = {{
 
 constexpr std::array<const char *, kTextCount> kTextAr = {{
     "ROCreader", u8"\u0627\u0644\u0646\u0638\u0627\u0645", u8"\u062f\u0644\u064a\u0644 \u0627\u0644\u0623\u0632\u0631\u0627\u0631",
-    u8"\u0645\u0633\u062d \u0627\u0644\u0633\u062c\u0644", u8"\u0645\u0633\u062d \u0627\u0644\u0630\u0627\u0643\u0631\u0629", "TXT",
+    u8"\u0645\u0633\u062d \u0627\u0644\u0633\u062c\u0644", u8"\u0645\u0633\u062d \u0627\u0644\u0630\u0627\u0643\u0631\u0629", u8"\u0625\u0639\u062f\u0627\u062f\u0627\u062a \u0627\u0644\u0646\u0635",
     u8"\u0627\u0644\u0645\u0633\u0627\u0647\u0645\u0648\u0646", u8"\u0627\u062a\u0635\u0644 \u0628\u064a",
     u8"\u0627\u0644\u062a\u062d\u062f\u064a\u062b\u0627\u062a", u8"\u062e\u0631\u0648\u062c",
     u8"\u0627\u0636\u063a\u0637 A \u0644\u0644\u062e\u0631\u0648\u062c \u0627\u0644\u0643\u0627\u0645\u0644",
@@ -333,7 +333,7 @@ constexpr std::array<const char *, kTextCount> kTextAr = {{
 constexpr std::array<const char *, kTextCount> kTextRu = {{
     "ROCreader", u8"\u0421\u0438\u0441\u0442\u0435\u043c\u0430", u8"\u041a\u043d\u043e\u043f\u043a\u0438",
     u8"\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0438\u0441\u0442\u043e\u0440\u0438\u044e",
-    u8"\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u043a\u044d\u0448", "TXT", u8"\u0410\u0432\u0442\u043e\u0440\u044b",
+    u8"\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u043a\u044d\u0448", u8"\u0422\u0435\u043a\u0441\u0442", u8"\u0410\u0432\u0442\u043e\u0440\u044b",
     u8"\u041a\u043e\u043d\u0442\u0430\u043a\u0442", u8"\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
     u8"\u0412\u044b\u0445\u043e\u0434", u8"\u041d\u0430\u0436\u043c\u0438\u0442\u0435 A \u0434\u043b\u044f \u0432\u044b\u0445\u043e\u0434\u0430",
     u8"\u0417\u0432\u0443\u043a \u043a\u043b\u0430\u0432\u0438\u0448", u8"\u042f\u0440\u043a\u043e\u0441\u0442\u044c",
@@ -366,7 +366,7 @@ constexpr std::array<const char *, kTextCount> kTextRu = {{
 }};
 
 constexpr std::array<const char *, kTextCount> kTextPt = {{
-    "ROCreader", "Sistema", "Guia teclas", "Limpar historico", "Limpar cache", "TXT", "Colaboradores",
+    "ROCreader", "Sistema", "Guia teclas", "Limpar historico", "Limpar cache", "Texto", "Colaboradores",
     "Contato", "Atualizacoes", "Sair", "Pressione A para sair", "Som teclas", "Brilho",
     "Sono automatico", "Timer de sono", "Idioma do sistema", "Ligado", "Desligado", "Limpar",
     "Limpar cache", "Limpar historico", "Fundo", "Cor da fonte", "Tamanho da fonte", "TXT",
@@ -385,7 +385,7 @@ constexpr std::array<const char *, kTextCount> kTextPt = {{
 
 constexpr std::array<const char *, kTextCount> kTextVi = {{
     "ROCreader", u8"H\u1ec7 th\u1ed1ng", u8"H\u01b0\u1edbng d\u1eabn ph\u00edm",
-    u8"X\u00f3a l\u1ecbch s\u1eed", u8"X\u00f3a b\u1ed9 nh\u1edb \u0111\u1ec7m", "TXT",
+    u8"X\u00f3a l\u1ecbch s\u1eed", u8"X\u00f3a b\u1ed9 nh\u1edb \u0111\u1ec7m", u8"C\u00e0i \u0111\u1eb7t v\u0103n b\u1ea3n",
     u8"C\u1ed9ng t\u00e1c vi\u00ean", u8"Li\u00ean h\u1ec7", u8"C\u1eadp nh\u1eadt", u8"Tho\u00e1t",
     u8"Nh\u1ea5n A \u0111\u1ec3 tho\u00e1t", u8"\u00c2m ph\u00edm", u8"\u0110\u1ed9 s\u00e1ng",
     u8"Ng\u1ee7 t\u1ef1 \u0111\u1ed9ng", u8"H\u1eb9n gi\u1edd ng\u1ee7", u8"Ng\u00f4n ng\u1eef h\u1ec7 th\u1ed1ng",

@@ -14,7 +14,7 @@ struct SystemSettingsState {
   int selected_row = 0;
   int selected_button = 0;
   bool lid_close_screen_off_enabled = true;
-  int auto_sleep_interval_index = 3;
+  int auto_sleep_interval_index = 2;
   int system_language_index = 0;
   SystemControlLevels levels;
 };

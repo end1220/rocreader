@@ -39,6 +39,8 @@ std::vector<fs::path> Card1Candidates() {
     roots.emplace_back(env);
   }
   roots.emplace_back("/mnt/mmc");
+  roots.emplace_back("/media/mmc");
+  roots.emplace_back("/mnt/SDCARD");
   return roots;
 }
 
@@ -48,6 +50,9 @@ std::vector<fs::path> Card2Candidates() {
     roots.emplace_back(env);
   }
   roots.emplace_back("/mnt/sdcard");
+  roots.emplace_back("/mnt/mmc2");
+  roots.emplace_back("/media/mmc2");
+  roots.emplace_back("/media/sdcard");
   return roots;
 }
 
@@ -58,6 +63,30 @@ void AddRocreaderCandidates(std::vector<std::string> &out, const std::vector<fs:
     AddIfDirExists(out, root / "Roms" / "ROCreader");
     AddIfDirExists(out, root / "APPS" / "ROCreader");
     AddIfDirExists(out, root / "Roms" / "APPS" / "ROCreader");
+  }
+}
+
+void AddRocreaderNamedDirCandidates(std::vector<std::string> &out,
+                                    const std::vector<fs::path> &roots,
+                                    const char *dir_name) {
+  for (const auto &root : roots) {
+    AddIfDirExists(out, root / dir_name);
+    AddIfDirExists(out, root / "ROCreader" / dir_name);
+    AddIfDirExists(out, root / "Apps" / "ROCreader" / dir_name);
+    AddIfDirExists(out, root / "Roms" / "ROCreader" / dir_name);
+    AddIfDirExists(out, root / "APPS" / "ROCreader" / dir_name);
+    AddIfDirExists(out, root / "Roms" / "APPS" / "ROCreader" / dir_name);
+  }
+}
+
+void AddSiblingNamedDirsForRoots(std::vector<std::string> &out,
+                                 const std::vector<std::string> &source_roots,
+                                 const char *source_dir_name,
+                                 const char *sibling_dir_name) {
+  for (const auto &source_root : source_roots) {
+    const fs::path source_path(source_root);
+    if (source_path.filename() != source_dir_name) continue;
+    AddIfDirExists(out, source_path.parent_path() / sibling_dir_name);
   }
 }
 
@@ -217,6 +246,8 @@ std::vector<std::string> DetectBooksRoots() {
   for (const auto &root : app_roots) {
     AddIfDirExists(out, fs::path(root) / "books");
   }
+  AddRocreaderNamedDirCandidates(out, Card1Candidates(), "books");
+  AddRocreaderNamedDirCandidates(out, Card2Candidates(), "books");
   return out;
 #else
   const std::vector<fs::path> card1 = Card1Candidates();
@@ -238,13 +269,17 @@ std::vector<std::string> DetectBooksRoots() {
 }
 
 std::vector<std::string> DetectCoverRoots() {
+  const std::vector<std::string> books_roots = DetectBooksRoots();
   g_seen_dir_keys.clear();
   std::vector<std::string> out;
+  AddSiblingNamedDirsForRoots(out, books_roots, "books", "book_covers");
 #ifndef _WIN32
   const std::vector<std::string> app_roots = DetectRocreaderRoots();
   for (const auto &root : app_roots) {
     AddIfDirExists(out, fs::path(root) / "book_covers");
   }
+  AddRocreaderNamedDirCandidates(out, Card1Candidates(), "book_covers");
+  AddRocreaderNamedDirCandidates(out, Card2Candidates(), "book_covers");
   return out;
 #else
   const std::vector<fs::path> card1 = Card1Candidates();

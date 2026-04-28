@@ -253,7 +253,10 @@ SDL_Texture *CreatePdfFirstPageCoverTexture(const std::string &doc_path, CoverSe
 SDL_Texture *ResolveBookCoverTexture(const BookItem &item, ShelfCategory category, CoverServiceDeps &deps) {
   const bool txt_folder = item.is_dir && category == ShelfCategory::AllBooks;
   const bool txt_file = !item.is_dir && deps.get_lower_ext(item.path) == ".txt";
-  if (txt_folder || txt_file) return deps.shared_txt_cover;
+  if (txt_folder || txt_file) {
+    if (SDL_Texture *texture = LoadManualCoverExactThenFuzzy(item, deps)) return texture;
+    return deps.shared_txt_cover;
+  }
 
   if (item.is_dir) {
     if (SDL_Texture *texture = LoadManualCoverExactThenFuzzy(item, deps)) return texture;
