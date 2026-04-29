@@ -54,7 +54,7 @@ void JpegErrorExit(j_common_ptr cinfo) {
   longjmp(err->jump, 1);
 }
 
-SDL_Surface *DecodeJpegSurface(const uint8_t *data, size_t size) {
+SDL_Surface *DecodeJpegSurface(const uint8_t *data, size_t size, int max_w = 0, int max_h = 0) {
   jpeg_decompress_struct cinfo{};
   JpegErrorState jerr{};
   cinfo.err = jpeg_std_error(&jerr.pub);
@@ -72,6 +72,17 @@ SDL_Surface *DecodeJpegSurface(const uint8_t *data, size_t size) {
     runtime_log::Line("[image_decode] jpeg header failed bytes=" + std::to_string(size));
     jpeg_destroy_decompress(&cinfo);
     return nullptr;
+  }
+  if (max_w > 0 && max_h > 0 &&
+      (static_cast<int>(cinfo.image_width) > max_w || static_cast<int>(cinfo.image_height) > max_h)) {
+    int denom = 1;
+    while (denom < 8 &&
+           static_cast<int>(cinfo.image_width / (denom * 2)) >= max_w &&
+           static_cast<int>(cinfo.image_height / (denom * 2)) >= max_h) {
+      denom *= 2;
+    }
+    cinfo.scale_num = 1;
+    cinfo.scale_denom = denom;
   }
   cinfo.out_color_space = JCS_RGB;
   if (!jpeg_start_decompress(&cinfo)) {
@@ -148,4 +159,15 @@ SDL_Surface *DecodeSurfaceFromMemory(const void *data, size_t size) {
 #endif
   runtime_log::Line("[image_decode] no decoder accepted bytes=" + std::to_string(size));
   return nullptr;
+}
+
+SDL_Surface *DecodeSurfaceFromMemoryFit(const void *data, size_t size, int max_w, int max_h) {
+  if (!data || size == 0) return nullptr;
+  const auto *bytes = static_cast<const uint8_t *>(data);
+#ifdef HAVE_JPEG
+  if (size >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
+    if (SDL_Surface *surface = DecodeJpegSurface(bytes, size, max_w, max_h)) return surface;
+  }
+#endif
+  return DecodeSurfaceFromMemory(data, size);
 }

@@ -40,7 +40,6 @@ constexpr size_t kMeaningfulParagraphThreshold = 24;
 constexpr size_t kMinMeaningfulParagraphs = 20;
 constexpr size_t kImageHeavyThreshold = 24;
 constexpr size_t kMaxTextTextureCacheEntries = 768;
-constexpr int kMaxTextTextureCreatesPerFrame = 8;
 constexpr int kMaxImageTextureCreatesPerFrame = 1;
 constexpr size_t kInitialFlowDocsToLoad = 6;
 constexpr size_t kInitialFlowMinBlocks = 80;
@@ -691,7 +690,6 @@ struct EpubFlowReader::Impl {
   mutable std::unordered_map<std::string, SDL_Texture *> image_textures;
   mutable std::unordered_map<std::string, SDL_Point> image_sizes;
   mutable std::unordered_map<std::string, TextTextureEntry> text_textures;
-  mutable int text_texture_creates_this_frame = 0;
   mutable int image_texture_creates_this_frame = 0;
 #ifdef HAVE_SDL2_TTF
   TTF_Font *font = nullptr;
@@ -893,41 +891,37 @@ struct EpubFlowReader::Impl {
   }
 #endif
 
-  bool DrawTextLine(SDL_Renderer *r, const std::string &text, int x, int y, const FlowBlock &block) const {
+  void DrawTextLine(SDL_Renderer *r, const std::string &text, int x, int y, const FlowBlock &block) const {
 #ifdef HAVE_SDL2_TTF
     TTF_Font *draw_font = FontForBlock(block);
-    if (!draw_font || text.empty()) return false;
+    if (!draw_font || text.empty()) return;
     const char role = block.type == FlowBlockType::Header ? 'h' : 'b';
     const std::string key = std::string(1, role) + "|" + std::to_string(FontPt()) + "|" +
                             std::to_string(font_color.r) + "," + std::to_string(font_color.g) + "," +
                             std::to_string(font_color.b) + "," + text;
     auto cached = text_textures.find(key);
     if (cached == text_textures.end()) {
-      if (text_texture_creates_this_frame >= kMaxTextTextureCreatesPerFrame) return false;
       SDL_Surface *surface = TTF_RenderUTF8_Blended(draw_font, text.c_str(), font_color);
-      if (!surface) return false;
+      if (!surface) return;
       TextTextureEntry entry;
       entry.texture = SDL_CreateTextureFromSurface(r, surface);
       entry.w = surface->w;
       entry.h = surface->h;
       entry.last_use = SDL_GetTicks();
       SDL_FreeSurface(surface);
-      if (!entry.texture) return false;
+      if (!entry.texture) return;
       cached = text_textures.emplace(key, entry).first;
-      ++text_texture_creates_this_frame;
       PruneTextTextures();
     }
     cached->second.last_use = SDL_GetTicks();
     SDL_Rect dst{x, y, cached->second.w, cached->second.h};
     SDL_RenderCopy(r, cached->second.texture, nullptr, &dst);
-    return true;
 #else
     (void)r;
     (void)text;
     (void)x;
     (void)y;
     (void)block;
-    return false;
 #endif
   }
 
@@ -957,11 +951,25 @@ struct EpubFlowReader::Impl {
     const bool ok = ReadZipEntry(za, block.resource, bytes);
     zip_close(za);
     if (!ok || bytes.empty()) return nullptr;
-    SDL_Surface *surface = DecodeSurfaceFromMemory(bytes.data(), bytes.size());
+    SDL_Surface *surface = DecodeSurfaceFromMemoryFit(bytes.data(), bytes.size(), block.draw_w, block.draw_h);
     if (!surface) return nullptr;
     w = surface->w;
     h = surface->h;
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(r, surface);
+    SDL_Surface *texture_surface = surface;
+    SDL_Surface *scaled_surface = nullptr;
+    if (block.draw_w > 0 && block.draw_h > 0 &&
+        (surface->w > block.draw_w || surface->h > block.draw_h)) {
+      scaled_surface = SDL_CreateRGBSurfaceWithFormat(0, block.draw_w, block.draw_h, 32, SDL_PIXELFORMAT_RGBA32);
+      if (scaled_surface) {
+        SDL_Rect src{0, 0, surface->w, surface->h};
+        SDL_Rect dst{0, 0, block.draw_w, block.draw_h};
+        if (SDL_BlitScaled(surface, &src, scaled_surface, &dst) == 0) {
+          texture_surface = scaled_surface;
+        }
+      }
+    }
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(r, texture_surface);
+    if (scaled_surface) SDL_FreeSurface(scaled_surface);
     SDL_FreeSurface(surface);
     ++image_texture_creates_this_frame;
     image_textures[block.resource] = texture;
@@ -1151,7 +1159,6 @@ void EpubFlowReader::Tick() {
 
 void EpubFlowReader::Draw(SDL_Renderer *renderer) const {
   if (!IsOpen() || !renderer) return;
-  impl_->text_texture_creates_this_frame = 0;
   impl_->image_texture_creates_this_frame = 0;
   SDL_SetRenderDrawColor(renderer, impl_->background_color.r, impl_->background_color.g,
                          impl_->background_color.b, impl_->background_color.a);

@@ -42,6 +42,36 @@ std::filesystem::path GetPdfCoverCacheFile(const std::string &doc_path, const Co
   return SelectCoverCacheDir(doc_path, deps) / oss.str();
 }
 
+std::string MakeManualCoverCacheKey(const std::string &item_path, const std::string &cover_path,
+                                    const CoverServiceDeps &deps) {
+  std::error_code ec;
+  const std::filesystem::path cover_fs_path(cover_path);
+  const uintmax_t file_size = std::filesystem::file_size(cover_fs_path, ec);
+  const auto mtime_raw = std::filesystem::last_write_time(cover_fs_path, ec);
+  const long long file_mtime = ec ? 0LL : static_cast<long long>(mtime_raw.time_since_epoch().count());
+  return deps.normalize_path_key(item_path) + "|" + deps.normalize_path_key(cover_path) + "|" +
+         std::to_string(ec ? 0 : file_size) + "|" + std::to_string(file_mtime) + "|" +
+         std::to_string(deps.cover_w) + "x" + std::to_string(deps.cover_h);
+}
+
+std::filesystem::path GetManualCoverCacheFile(const std::string &item_path, const std::string &cover_path,
+                                              const CoverServiceDeps &deps) {
+  const size_t hash_value = std::hash<std::string>{}(MakeManualCoverCacheKey(item_path, cover_path, deps));
+  std::ostringstream oss;
+  oss << "manual_" << std::hex << hash_value << ".bmp";
+  return SelectCoverCacheDir(item_path, deps) / oss.str();
+}
+
+std::string ManualCoverCacheKey(const BookItem &item, const CoverServiceDeps &deps) {
+  const std::string item_path = item.real_path.empty() ? item.path : item.real_path;
+  std::ostringstream oss;
+  oss << (item.is_dir ? "dir|" : "file|") << deps.normalize_path_key(item_path);
+  for (const auto &root : deps.cover_roots) {
+    oss << "|" << deps.normalize_path_key(root);
+  }
+  return oss.str();
+}
+
 SDL_Texture *LoadCachedPdfCoverTexture(const std::string &doc_path, CoverServiceDeps &deps) {
   const std::filesystem::path cache_file = GetPdfCoverCacheFile(doc_path, deps);
   std::error_code ec;
@@ -58,6 +88,28 @@ SDL_Texture *LoadCachedPdfCoverTexture(const std::string &doc_path, CoverService
   return normalized;
 }
 
+SDL_Surface *CreateNormalizedCoverSurface(SDL_Surface *src_surface, int cover_w, int cover_h, float cover_aspect) {
+  if (!src_surface || src_surface->w <= 0 || src_surface->h <= 0 || cover_w <= 0 || cover_h <= 0) return nullptr;
+  SDL_Surface *dst_surface = SDL_CreateRGBSurfaceWithFormat(0, cover_w, cover_h, 32, SDL_PIXELFORMAT_RGBA32);
+  if (!dst_surface) return nullptr;
+
+  const float src_aspect = static_cast<float>(src_surface->w) / static_cast<float>(src_surface->h);
+  SDL_Rect src{0, 0, src_surface->w, src_surface->h};
+  if (src_aspect > cover_aspect) {
+    src.w = std::max(1, static_cast<int>(std::round(static_cast<float>(src_surface->h) * cover_aspect)));
+    src.x = (src_surface->w - src.w) / 2;
+  } else if (src_aspect < cover_aspect) {
+    src.h = std::max(1, static_cast<int>(std::round(static_cast<float>(src_surface->w) / cover_aspect)));
+    src.y = (src_surface->h - src.h) / 2;
+  }
+
+  if (SDL_BlitScaled(src_surface, &src, dst_surface, nullptr) != 0) {
+    SDL_FreeSurface(dst_surface);
+    return nullptr;
+  }
+  return dst_surface;
+}
+
 void SavePdfCoverCacheToDisk(const std::string &doc_path, const std::vector<unsigned char> &cover_rgba,
                              const CoverServiceDeps &deps) {
   if (cover_rgba.size() != static_cast<size_t>(deps.cover_w * deps.cover_h * 4)) return;
@@ -72,28 +124,77 @@ void SavePdfCoverCacheToDisk(const std::string &doc_path, const std::vector<unsi
   SDL_FreeSurface(surface);
 }
 
-SDL_Texture *LoadCoverFromPath(const std::string &cover_path, CoverServiceDeps &deps) {
+SDL_Texture *LoadManualCoverFromPath(const BookItem &item, const std::string &cover_path, CoverServiceDeps &deps) {
   if (cover_path.empty()) return nullptr;
+  const std::string item_path = item.real_path.empty() ? item.path : item.real_path;
+  const std::filesystem::path cache_file = GetManualCoverCacheFile(item_path, cover_path, deps);
+  std::error_code ec;
+  if (std::filesystem::exists(cache_file, ec) && !ec) {
+    if (SDL_Surface *cached_surface = deps.load_surface_from_file(cache_file.string())) {
+      SDL_Texture *cached = deps.create_texture_from_surface(deps.renderer, cached_surface);
+      SDL_FreeSurface(cached_surface);
+      if (cached) {
+        deps.remember_texture_size(cached, deps.cover_w, deps.cover_h);
+        return cached;
+      }
+    }
+  }
+
   SDL_Surface *cover_surface = deps.load_surface_from_file(cover_path);
   if (!cover_surface) return nullptr;
-  SDL_Texture *normalized =
-      deps.create_normalized_cover_texture(deps.renderer, cover_surface, deps.cover_w, deps.cover_h, deps.cover_aspect);
-  if (!normalized) normalized = deps.create_texture_from_surface(deps.renderer, cover_surface);
+  SDL_Surface *normalized_surface =
+      CreateNormalizedCoverSurface(cover_surface, deps.cover_w, deps.cover_h, deps.cover_aspect);
   SDL_FreeSurface(cover_surface);
-  return normalized;
+  if (!normalized_surface) return nullptr;
+
+  std::filesystem::create_directories(cache_file.parent_path(), ec);
+  SDL_SaveBMP(normalized_surface, cache_file.string().c_str());
+
+  SDL_Texture *texture = deps.create_texture_from_surface(deps.renderer, normalized_surface);
+  SDL_FreeSurface(normalized_surface);
+  if (texture) deps.remember_texture_size(texture, deps.cover_w, deps.cover_h);
+  return texture;
 }
 
 SDL_Texture *LoadManualCoverExactThenFuzzy(const BookItem &item, CoverServiceDeps &deps) {
+  if (deps.manual_cover_path_cache) {
+    const std::string cache_key = ManualCoverCacheKey(item, deps);
+    auto cached = deps.manual_cover_path_cache->find(cache_key);
+    if (cached != deps.manual_cover_path_cache->end()) {
+      if (cached->second.empty()) return nullptr;
+      SDL_Texture *texture = LoadManualCoverFromPath(item, cached->second, deps);
+      if (texture) return texture;
+      deps.manual_cover_path_cache->erase(cached);
+    }
+
+    const std::string exact_cover_path =
+        cover_resolver::ResolveCoverPathExact(item.path, item.is_dir, deps.cover_roots);
+    if (!exact_cover_path.empty()) {
+      (*deps.manual_cover_path_cache)[cache_key] = exact_cover_path;
+      SDL_Texture *texture = LoadManualCoverFromPath(item, exact_cover_path, deps);
+      if (texture) return texture;
+    }
+    const std::string fuzzy_cover_path =
+        cover_resolver::ResolveCoverPathFuzzy(item.path, item.is_dir, deps.cover_roots);
+    if (!fuzzy_cover_path.empty()) {
+      (*deps.manual_cover_path_cache)[cache_key] = fuzzy_cover_path;
+      SDL_Texture *texture = LoadManualCoverFromPath(item, fuzzy_cover_path, deps);
+      if (texture) return texture;
+    }
+    (*deps.manual_cover_path_cache)[cache_key] = std::string();
+    return nullptr;
+  }
+
   const std::string exact_cover_path =
       cover_resolver::ResolveCoverPathExact(item.path, item.is_dir, deps.cover_roots);
   if (!exact_cover_path.empty()) {
-    SDL_Texture *texture = LoadCoverFromPath(exact_cover_path, deps);
+    SDL_Texture *texture = LoadManualCoverFromPath(item, exact_cover_path, deps);
     if (texture) return texture;
   }
   const std::string fuzzy_cover_path =
       cover_resolver::ResolveCoverPathFuzzy(item.path, item.is_dir, deps.cover_roots);
   if (!fuzzy_cover_path.empty()) {
-    SDL_Texture *texture = LoadCoverFromPath(fuzzy_cover_path, deps);
+    SDL_Texture *texture = LoadManualCoverFromPath(item, fuzzy_cover_path, deps);
     if (texture) return texture;
   }
   return nullptr;

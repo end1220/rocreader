@@ -281,7 +281,6 @@ void HandleShelfInput(ShelfRuntimeInputDeps &deps) {
   if (deps.input.IsJustPressed(Button::L1)) {
     deps.nav_selected_index = (deps.nav_selected_index + 3) % 4;
     deps.current_folder.clear();
-    if (deps.clear_cover_cache) deps.clear_cover_cache();
     if (deps.rebuild_shelf_items) deps.rebuild_shelf_items();
     deps.focus_index = 0;
     deps.shelf_page = 0;
@@ -290,7 +289,6 @@ void HandleShelfInput(ShelfRuntimeInputDeps &deps) {
   } else if (deps.input.IsJustPressed(Button::R1)) {
     deps.nav_selected_index = (deps.nav_selected_index + 1) % 4;
     deps.current_folder.clear();
-    if (deps.clear_cover_cache) deps.clear_cover_cache();
     if (deps.rebuild_shelf_items) deps.rebuild_shelf_items();
     deps.focus_index = 0;
     deps.shelf_page = 0;

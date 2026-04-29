@@ -9,6 +9,7 @@
 #include "filesystem_compat.h"
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct CoverServiceDeps {
@@ -21,6 +22,7 @@ struct CoverServiceDeps {
   std::vector<std::string> cover_roots;
   SDL_Texture *shared_txt_cover = nullptr;
   SDL_Texture *shared_pdf_cover = nullptr;
+  std::unordered_map<std::string, std::string> *manual_cover_path_cache = nullptr;
   std::function<std::string(const std::string &)> normalize_path_key;
   std::function<std::string(const std::string &)> get_lower_ext;
   std::function<SDL_Surface *(const std::string &)> load_surface_from_file;

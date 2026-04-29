@@ -1277,6 +1277,7 @@ int main(int, char **argv) {
   }
   std::vector<BookItem> &shelf_items = shelf_runtime.items;
   std::unordered_map<std::string, CoverCacheEntry> cover_textures;
+  std::unordered_map<std::string, std::string> manual_cover_path_cache;
   std::string current_folder;
   std::unordered_map<std::string, int> folder_focus;
   int focus_index = 0;
@@ -1417,6 +1418,7 @@ int main(int, char **argv) {
       }
     }
     cover_textures.clear();
+    manual_cover_path_cache.clear();
     ++shelf_content_version;
   };
   auto clear_directory_files = [&](const std::filesystem::path &dir_path) {
@@ -1444,6 +1446,7 @@ int main(int, char **argv) {
         cover_roots,
         ui_assets.book_cover_txt,
         ui_assets.book_cover_pdf,
+        &manual_cover_path_cache,
         NormalizePathKey,
         GetLowerExt,
         LoadSurfaceFromFile,
