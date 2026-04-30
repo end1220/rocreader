@@ -1201,11 +1201,17 @@ int main(int, char **argv) {
     }
   };
 
+  auto cover_texture_w = [&]() {
+    return std::max(FocusedCoverW(), Layout().cover_w * 2);
+  };
+  auto cover_texture_h = [&]() {
+    return std::max(FocusedCoverH(), Layout().cover_h * 2);
+  };
   auto make_cover_service_deps = [&]() {
     return CoverServiceDeps{
         renderer,
-        FocusedCoverW(),
-        FocusedCoverH(),
+        cover_texture_w(),
+        cover_texture_h(),
         kCoverAspect,
         cover_thumb_cache_dir,
         removable_cover_thumb_cache_dir,
@@ -1247,7 +1253,7 @@ int main(int, char **argv) {
   auto get_cover_texture = [&](const BookItem &item) -> SDL_Texture * {
     const std::string &real_path = item_real_path(item);
     const std::string cover_cache_key =
-        real_path + "|cover|" + std::to_string(FocusedCoverW()) + "x" + std::to_string(FocusedCoverH());
+        real_path + "|cover|" + std::to_string(cover_texture_w()) + "x" + std::to_string(cover_texture_h());
     if (SDL_Texture *cached = cover_cache.FindTexture(cover_cache_key)) {
       return cached;
     }
