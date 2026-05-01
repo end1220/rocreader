@@ -19,6 +19,20 @@ int TxtLayoutProgressPercentLocal(const TxtReaderState &txt) {
   if (total == 0) return 0;
   return std::clamp(static_cast<int>((static_cast<int64_t>(txt.parse_pos) * 100) / total), 0, 100);
 }
+
+bool SupportsPageChapterList(ReaderMode mode, const IReaderModule *module) {
+  if (!module || !module->IsOpen()) return false;
+  if (mode == ReaderMode::Pdf || mode == ReaderMode::ZipImage) return true;
+  if (mode == ReaderMode::Epub) {
+    return std::string(module->BackendName()) != "epub-flow" &&
+           module->Capabilities().is_image_sequence;
+  }
+  return false;
+}
+
+std::string PageChapterTitle(int page_index) {
+  return u8"\u7b2c" + std::to_string(page_index + 1) + u8"\u9875";
+}
 }  // namespace
 
 ReaderScene::ReaderScene(std::function<void()> on_reader_closed)
@@ -92,6 +106,9 @@ void ReaderScene::HandleInput(const ReaderSceneInputDeps &deps) const {
     IReaderModule *module = active_module();
     return deps.ui.mode == ReaderMode::Epub && module && module->IsOpen() &&
            std::string(module->BackendName()) == "epub-flow";
+  };
+  auto page_chapters_open = [&]() {
+    return SupportsPageChapterList(deps.ui.mode, active_module());
   };
   auto refresh_txt_chapters = [&](bool reset_window) {
     const TxtReaderState &txt = deps.ui.Txt();
@@ -179,6 +196,30 @@ void ReaderScene::HandleInput(const ReaderSceneInputDeps &deps) const {
                    std::max(0, static_cast<int>(deps.ui.chapter_anchors.size()) - 1));
     if (reset_window) deps.ui.chapter_sidebar_first_visible = 0;
   };
+  auto refresh_page_chapters = [&](bool reset_window) {
+    IReaderModule *module = active_module();
+    const int page_count = module ? std::max(1, module->PageCount()) : 1;
+    const std::string cache_key = deps.ui.current_book + "|page-list|" +
+                                  std::to_string(static_cast<int>(deps.ui.mode)) + "|" +
+                                  std::to_string(page_count);
+    if (deps.ui.chapter_cache_key != cache_key || deps.ui.chapter_anchors.size() != static_cast<size_t>(page_count)) {
+      deps.ui.chapter_anchors.clear();
+      deps.ui.chapter_anchors.reserve(static_cast<size_t>(page_count));
+      for (int i = 0; i < page_count; ++i) {
+        ReaderChapterAnchor anchor;
+        anchor.title = PageChapterTitle(i);
+        anchor.page = i;
+        deps.ui.chapter_anchors.push_back(std::move(anchor));
+      }
+      deps.ui.chapter_cache_key = cache_key;
+    }
+    deps.ui.chapter_loading = false;
+    deps.ui.chapter_loading_pct = 100;
+    deps.ui.chapter_sidebar_selected =
+        std::clamp(deps.ui.chapter_sidebar_selected, 0,
+                   std::max(0, static_cast<int>(deps.ui.chapter_anchors.size()) - 1));
+    if (reset_window) deps.ui.chapter_sidebar_first_visible = 0;
+  };
   auto jump_to_chapter = [&](const ReaderChapterAnchor &chapter) {
     if (deps.ui.mode == ReaderMode::Txt && deps.ui.Txt().open) {
       if (chapter.source_offset > 0 && deps.services.actions.jump_to_txt_source_offset) {
@@ -197,7 +238,11 @@ void ReaderScene::HandleInput(const ReaderSceneInputDeps &deps) const {
       return;
     }
     IReaderModule *module = active_module();
-    if (flow_epub_open() && module) module->JumpToChapter(chapter);
+    if (flow_epub_open() && module) {
+      module->JumpToChapter(chapter);
+    } else if (page_chapters_open() && module) {
+      module->SetPage(chapter.page);
+    }
   };
 
   if (deps.ui.mode == ReaderMode::Txt && deps.ui.Txt().open) {
@@ -211,6 +256,8 @@ void ReaderScene::HandleInput(const ReaderSceneInputDeps &deps) const {
       refresh_txt_chapters(false);
     } else if (flow_epub_open()) {
       refresh_epub_chapters(false);
+    } else if (page_chapters_open()) {
+      refresh_page_chapters(false);
     }
     ChapterSidebarInputDeps sidebar_deps{deps.input, deps.ui, jump_to_chapter};
     if (HandleChapterSidebarInput(sidebar_deps)) return;
@@ -229,6 +276,20 @@ void ReaderScene::HandleInput(const ReaderSceneInputDeps &deps) const {
   if (deps.input.IsJustPressed(Button::Y) && flow_epub_open()) {
     refresh_epub_chapters(true);
     select_current_epub_chapter();
+    deps.ui.chapter_sidebar_first_visible = deps.ui.chapter_sidebar_selected;
+    deps.ui.chapter_marquee_selected = -1;
+    deps.ui.chapter_marquee_start_ticks = 0;
+    deps.ui.chapter_sidebar_visible = true;
+    deps.ui.progress_overlay_visible = false;
+    return;
+  }
+  if (deps.input.IsJustPressed(Button::Y) && page_chapters_open()) {
+    IReaderModule *module = active_module();
+    refresh_page_chapters(true);
+    deps.ui.chapter_sidebar_selected =
+        module ? std::clamp(module->CurrentPage(), 0,
+                            std::max(0, static_cast<int>(deps.ui.chapter_anchors.size()) - 1))
+               : 0;
     deps.ui.chapter_sidebar_first_visible = deps.ui.chapter_sidebar_selected;
     deps.ui.chapter_marquee_selected = -1;
     deps.ui.chapter_marquee_start_ticks = 0;
