@@ -24,6 +24,7 @@ std::vector<std::string> BuildUiAssetLookupNames(const std::string &profile_name
   std::vector<std::string> out;
   if (!profile_name.empty()) out.push_back(profile_name + "/" + name);
   out.push_back("common/" + name);
+  if (profile_name == "960x720") out.push_back("720x720/" + name);
   if (profile_name != "720x480") out.push_back("720x480/" + name);
   out.push_back(name);
   return out;

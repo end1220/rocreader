@@ -15,6 +15,7 @@ INSTALLED_VERSION_FILE="$APP_DIR/version.txt"
 export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-alsa}"
 export SDL_NOMOUSE="${SDL_NOMOUSE:-1}"
 export ROCREADER_ROOT="$APP_DIR"
+export ROCREADER_CACHE_ROOT="${ROCREADER_CACHE_ROOT:-$APP_DIR/cache}"
 export ROCREADER_CARD1_ROOT="/mnt/mmc"
 export ROCREADER_CARD2_ROOT="/mnt/sdcard"
 export ROCREADER_SCAN_CARD2="${ROCREADER_SCAN_CARD2:-1}"
@@ -36,6 +37,14 @@ set_runtime_libs() {
     LIB_DIR="$LIB_FULL_DIR"
   fi
   export LD_LIBRARY_PATH="$LIB_DIR:$LIB_DIR/pulseaudio:/usr/lib32:/usr/lib:/lib:/mnt/vendor/lib:${LD_LIBRARY_PATH_BASE:-}"
+  # ALSA plugins are resolved from ALSA_PLUGIN_DIR, not LD_LIBRARY_PATH.
+  if [ -d "$LIB_DIR/alsa-lib" ]; then
+    export ALSA_PLUGIN_DIR="$LIB_DIR/alsa-lib"
+  elif [ -d "$LIB_DIR/alsa/alsa-lib" ]; then
+    export ALSA_PLUGIN_DIR="$LIB_DIR/alsa/alsa-lib"
+  else
+    unset ALSA_PLUGIN_DIR 2>/dev/null || true
+  fi
 }
 
 log_line() {

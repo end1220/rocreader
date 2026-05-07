@@ -21,9 +21,6 @@ void DrawStatusBarRuntime(const StatusBarRenderDeps &deps) {
   const int center_y = deps.top_bar_y + deps.top_bar_h / 2;
   const bool trimui_brick_status_layout = deps.input_profile == InputProfile::TrimuiBrick;
   const int battery_shift_y = trimui_brick_status_layout ? 5 : 3;
-  const int h700_battery_shift_x = (deps.screen_w <= 640) ? -80 : 0;
-  const int battery_icon_x = trimui_brick_status_layout ? 750 : 552 + h700_battery_shift_x;
-  const int battery_text_x = trimui_brick_status_layout ? 806 : 587 + h700_battery_shift_x;
   const int clock_shift_x = trimui_brick_status_layout ? 64 : 40;
   const int clock_shift_y = trimui_brick_status_layout ? 5 : 3;
   int clock_right = deps.screen_w - (trimui_brick_status_layout ? 26 : 16) - clock_shift_x;
@@ -62,7 +59,11 @@ void DrawStatusBarRuntime(const StatusBarRenderDeps &deps) {
     const int cap_h = scale_px(8);
     const int body_w = scale_px(24);
     const int body_h = scale_px(12);
-    const int icon_x = battery_icon_x;
+    const int battery_right_gap = trimui_brick_status_layout ? scale_px(128) : scale_px(124);
+    const int icon_text_gap = trimui_brick_status_layout ? scale_px(8) : scale_px(6);
+    const int battery_group_right = std::max(0, deps.screen_w - battery_right_gap);
+    const int battery_text_x = battery_group_right - battery_text_w;
+    const int icon_x = battery_text_x - icon_text_gap - body_w;
     const int icon_y = center_y - body_h / 2 + battery_shift_y;
 
     if (deps.draw_rect) {

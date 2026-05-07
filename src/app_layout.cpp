@@ -47,6 +47,27 @@ constexpr LayoutMetrics layout_640x480{
     1.0f,
 };
 
+constexpr LayoutMetrics layout_960x720{
+    960, 720, 27,
+    0, 36,
+    36, 58,
+    104, 556,
+    660, 60,
+    160, 210,
+    204, 250,
+    42, 38,
+    47, 100,
+    36, 2, 4, 24,
+    320, 0, 42,
+    43, 26,
+    28, 54,
+    889, 54,
+    120, 180, 50,
+    24, 16, 45, 45,
+    4, 3,
+    1.0f,
+};
+
 constexpr LayoutMetrics layout_720x720{
     720, 720, 20,
     0, 36,
@@ -100,6 +121,7 @@ const LayoutMetrics &Layout() { return *g_layout; }
 
 const LayoutMetrics &SelectLayoutProfile(int screen_w, int screen_h) {
   if (screen_w == layout_1024x768.screen_w && screen_h == layout_1024x768.screen_h) return layout_1024x768;
+  if (screen_w == layout_960x720.screen_w && screen_h == layout_960x720.screen_h) return layout_960x720;
   if (screen_w == layout_720x720.screen_w && screen_h == layout_720x720.screen_h) return layout_720x720;
   if (screen_w == layout_640x480.screen_w && screen_h == layout_640x480.screen_h) return layout_640x480;
   return layout_720x480;

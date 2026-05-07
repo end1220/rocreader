@@ -223,6 +223,15 @@ void DrawShelfRuntime(ShelfRuntimeRenderDeps &deps) {
     SDL_Rect dst{x, y, tw, th};
     SDL_RenderCopy(deps.renderer, tex, nullptr, &dst);
   };
+  auto draw_native_stretch_x = [&](SDL_Texture *tex, int x, int y, int target_w) {
+    if (!tex) return;
+    int tw = 0;
+    int th = 0;
+    deps.get_texture_size(tex, tw, th);
+    if (tw <= 0 || th <= 0 || target_w <= 0) return;
+    SDL_Rect dst{x, y, target_w, th};
+    SDL_RenderCopy(deps.renderer, tex, nullptr, &dst);
+  };
 
   struct RenderEntry {
     int index = -1;
@@ -392,12 +401,14 @@ void DrawShelfRuntime(ShelfRuntimeRenderDeps &deps) {
       if (!deps.page_animating || e.on_current_page) draw_title_overlay(item, dst, false);
     }
 
-    if (deps.ui_assets.top_status_bar) draw_native(deps.ui_assets.top_status_bar, 0, 0);
+    if (deps.ui_assets.top_status_bar) {
+      draw_native_stretch_x(deps.ui_assets.top_status_bar, 0, 0, deps.layout.screen_w);
+    }
     if (deps.ui_assets.bottom_hint_bar) {
       int bw = 0;
       int bh = 0;
       deps.get_texture_size(deps.ui_assets.bottom_hint_bar, bw, bh);
-      draw_native(deps.ui_assets.bottom_hint_bar, 0, deps.layout.screen_h - bh);
+      draw_native_stretch_x(deps.ui_assets.bottom_hint_bar, 0, deps.layout.screen_h - bh, deps.layout.screen_w);
     }
     if (deps.ui_assets.nav_l1_icon) draw_native(deps.ui_assets.nav_l1_icon, deps.layout.nav_l1_x, deps.layout.nav_l1_y);
     if (deps.ui_assets.nav_r1_icon) draw_native(deps.ui_assets.nav_r1_icon, deps.layout.nav_r1_x, deps.layout.nav_r1_y);

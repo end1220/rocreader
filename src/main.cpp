@@ -975,18 +975,8 @@ int main(int, char **argv) {
       system_control_service.RefreshVolumeOnly(system_settings_state.levels.volume);
     }
 
-    if (system_control_service.ApplyBrightnessLevel(config.Get().screen_brightness_level,
-                                                    system_settings_state.levels.brightness) &&
-        system_settings_state.levels.brightness.available) {
-      const int applied_level =
-          std::clamp(system_settings_state.levels.brightness.level, 0, system_settings_state.levels.brightness.max_level);
-      if (config.Mutable().screen_brightness_level != applied_level) {
-        config.Mutable().screen_brightness_level = applied_level;
-        changed = true;
-      }
-    } else {
-      system_control_service.Refresh(system_settings_state.levels);
-    }
+    // Do not let the app mutate system brightness; only read current levels.
+    system_control_service.Refresh(system_settings_state.levels);
     if (changed || config.IsDirty()) {
       config.MarkDirty();
       config.Save();
@@ -1602,17 +1592,9 @@ int main(int, char **argv) {
           }
           return ok;
         },
-        [&](int delta, SystemControlLevels &levels) {
-          const bool ok = system_control_service.AdjustBrightness(delta, levels);
-          if (ok && levels.brightness.available) {
-            const int saved_level =
-                std::clamp(levels.brightness.level, 0, std::max(1, levels.brightness.max_level));
-            if (config.Mutable().screen_brightness_level != saved_level) {
-              config.Mutable().screen_brightness_level = saved_level;
-              config.MarkDirty();
-            }
-          }
-          return ok;
+        [&](int /*delta*/, SystemControlLevels &levels) {
+          system_control_service.Refresh(levels);
+          return false;
         },
         [&](SystemSettingsState &settings_state) {
           settings_state.lid_close_screen_off_enabled = config.Get().lid_close_screen_off;

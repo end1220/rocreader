@@ -76,6 +76,11 @@ bool ReadEnvScreenProfile(int &out_w, int &out_h) {
     out_h = 768;
     return true;
   }
+  if (profile == "960x720" || profile == "miniloong" || profile == "mini-loong") {
+    out_w = 960;
+    out_h = 720;
+    return true;
+  }
   if (profile == "720x720") {
     out_w = 720;
     out_h = 720;
@@ -115,6 +120,11 @@ bool ReadConfigScreenProfile(int &out_w, int &out_h) {
       if (value == "1024x768" || value == "brick" || value == "trimui-brick") {
         out_w = 1024;
         out_h = 768;
+        return true;
+      }
+      if (value == "960x720" || value == "miniloong" || value == "mini-loong") {
+        out_w = 960;
+        out_h = 720;
         return true;
       }
       if (value == "720x720") {
@@ -172,6 +182,9 @@ std::string CanonicalModelTokenFromText(const std::string &text) {
       {"35xx", "rg35xx"},
       {"rg40xx", "rg40xx"},
       {"40xx", "rg40xx"},
+      {"miniloong", "miniloong"},
+      {"mini-loong", "miniloong"},
+      {"miniloongconsole", "miniloong"},
   };
   for (const auto &[needle, canonical] : aliases) {
     if (compact.find(needle) != std::string::npos) return canonical;
@@ -186,6 +199,11 @@ bool ApplyProfileFromModelToken(const std::string &model_token, int &out_w, int 
   if (model_token == "trimui-brick") {
     out_w = 1024;
     out_h = 768;
+    return true;
+  }
+  if (model_token == "miniloong") {
+    out_w = 960;
+    out_h = 720;
     return true;
   }
   if (model_token == "rgcubexx") {
@@ -359,6 +377,12 @@ bool TryApplyProfileFromDetectedSize(ScreenProfile &profile) {
     profile.screen_w = 1024;
     profile.screen_h = 768;
     profile.profile_name = "1024x768";
+    return true;
+  }
+  if (profile.detected_w == 960 && profile.detected_h == 720) {
+    profile.screen_w = 960;
+    profile.screen_h = 720;
+    profile.profile_name = "960x720";
     return true;
   }
   if (profile.detected_w == 720 && profile.detected_h == 720) {

@@ -209,18 +209,18 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
   DrawSelectedSettingsPanel(selected, deps, preview_rect, language_index, first_menu_item_y,
                             sidebar_item_pitch, sidebar_item_h, scale);
 
-  auto draw_native_topmost = [&](SDL_Texture *tex, int px, int py) {
+  auto draw_native_topmost_stretch_x = [&](SDL_Texture *tex, int px, int py, int target_w) {
     if (!tex) return;
     int tw = 0;
     int th = 0;
     deps.services.get_texture_size(tex, tw, th);
-    if (tw <= 0 || th <= 0) return;
-    SDL_Rect dst{px, py, tw, th};
+    if (tw <= 0 || th <= 0 || target_w <= 0) return;
+    SDL_Rect dst{px, py, target_w, th};
     SDL_RenderCopy(deps.renderer, tex, nullptr, &dst);
   };
 
   if (deps.ui_assets.top_status_bar) {
-    draw_native_topmost(deps.ui_assets.top_status_bar, 0, 0);
+    draw_native_topmost_stretch_x(deps.ui_assets.top_status_bar, 0, 0, deps.layout.screen_w);
   } else {
     deps.services.draw_rect(0, deps.layout.top_bar_y, deps.layout.screen_w, deps.layout.top_bar_h, SDL_Color{8, 10, 14, 255},
                    true);
@@ -232,7 +232,7 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
     int bw = 0;
     int bh = 0;
     deps.services.get_texture_size(deps.ui_assets.bottom_hint_bar, bw, bh);
-    draw_native_topmost(deps.ui_assets.bottom_hint_bar, 0, deps.layout.screen_h - bh);
+    draw_native_topmost_stretch_x(deps.ui_assets.bottom_hint_bar, 0, deps.layout.screen_h - bh, deps.layout.screen_w);
   } else {
     deps.services.draw_rect(0, deps.layout.bottom_bar_y, deps.layout.screen_w, deps.layout.bottom_bar_h,
                    SDL_Color{8, 10, 14, 255}, true);
