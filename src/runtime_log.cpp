@@ -103,9 +103,9 @@ void Init(const char *argv0) {
   }
   std::error_code ec;
   fs::create_directories(g_log_path.parent_path(), ec);
-  std::ofstream out(g_log_path, std::ios::app);
+  std::ofstream out(g_log_path, std::ios::trunc);
   if (out) {
-    out << "\n===== ROCreader start " << NowText() << " =====\n";
+    out << "===== ROCreader start " << NowText() << " =====\n";
   }
   if (g_echo_stderr) {
     std::cerr << "[runtime] log path: " << filesystem_compat::LexicallyNormal(g_log_path).string() << "\n";

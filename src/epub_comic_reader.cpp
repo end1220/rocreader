@@ -451,18 +451,18 @@ bool EpubComicReader::PageSize(int page_index, int &w, int &h) const {
                       " entry=" + entry.image_entry);
     return false;
   }
-  SDL_Surface *surface = LoadSurfaceFromMemory(bytes.data(), bytes.size());
-  if (!surface) {
-    runtime_log::Line("[epub_comic] page size decode failed page=" + std::to_string(page_index) +
+  int probed_w = 0;
+  int probed_h = 0;
+  if (!ProbeImageSizeFromMemory(bytes.data(), bytes.size(), probed_w, probed_h)) {
+    runtime_log::Line("[epub_comic] page size probe failed page=" + std::to_string(page_index) +
                       " entry=" + entry.image_entry +
                       " bytes=" + std::to_string(bytes.size()));
     return false;
   }
   PageEntry &mutable_entry = impl_->pages[page_index];
-  mutable_entry.width = surface->w;
-  mutable_entry.height = surface->h;
+  mutable_entry.width = probed_w;
+  mutable_entry.height = probed_h;
   mutable_entry.size_known = (mutable_entry.width > 0 && mutable_entry.height > 0);
-  SDL_FreeSurface(surface);
   if (!mutable_entry.size_known) return false;
   w = mutable_entry.width;
   h = mutable_entry.height;
@@ -516,6 +516,10 @@ bool EpubComicReader::RenderPageRGBA(int page_index, float scale, std::vector<un
   h = std::max(1, static_cast<int>(std::round(static_cast<float>(rgba_surface->h) * scale)));
 
   if (!ResampleRgbaSurface(rgba_surface, w, h, rgba, cancel)) {
+    if (cancel && cancel->load()) {
+      SDL_FreeSurface(rgba_surface);
+      return false;
+    }
     runtime_log::Line("[epub_comic] render resample failed page=" + std::to_string(page_index) +
                       " src=" + std::to_string(rgba_surface->w) + "x" +
                       std::to_string(rgba_surface->h) +

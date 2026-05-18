@@ -31,8 +31,13 @@ std::vector<fs::path> BuildPathCandidates(const fs::path &path) {
 }
 
 bool IsReadableFile(const fs::path &path) {
+#ifdef _WIN32
   std::ifstream in(path, std::ios::binary);
   return static_cast<bool>(in);
+#else
+  std::error_code ec;
+  return fs::exists(path, ec) && !ec && fs::is_regular_file(path, ec) && !ec;
+#endif
 }
 
 bool IsReadableDir(const fs::path &path) {

@@ -1,0 +1,3 @@
+在项目根目录执行：
+
+make REQUIRE_MUPDF=1

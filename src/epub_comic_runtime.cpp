@@ -20,6 +20,7 @@ constexpr float kMinZoom = 0.25f;
 constexpr float kMaxZoom = 6.0f;
 constexpr float kZoomStep = 0.1f;
 constexpr size_t kTextureCacheSize = 3;
+constexpr int kPrefetchLookaheadPages = 2;
 constexpr Uint32 kVisualRenderThrottleMs = 75;
 constexpr Uint32 kIdlePrefetchDelayMs = 220;
 
@@ -198,6 +199,8 @@ struct EpubComicRuntime::Impl {
   EpubState requested_state;
   EpubState prefetched_state;
   AsyncImageRenderQueue render_queue;
+  EpubComicReader worker_reader;
+  std::string worker_reader_path;
   int preferred_prefetch_dir = 1;
   bool visual_render_delay_active = false;
   Uint32 visual_render_due_ms = 0;
@@ -209,6 +212,7 @@ struct EpubComicRuntime::Impl {
 
   ~Impl() {
     render_queue.Shutdown();
+    worker_reader.Close();
     DestroyTexture();
     ClearTextureCache();
     DestroyReusableTexture();
@@ -463,16 +467,22 @@ struct EpubComicRuntime::Impl {
   bool RenderAsyncJob(const AsyncImageRenderJob &job,
                       std::atomic<bool> &cancel,
                       AsyncImageRenderResult &out) {
-    EpubComicReader worker_reader;
-    if (!worker_reader.Open(job.source_key)) return false;
+    if (!worker_reader.IsOpen() || worker_reader_path != job.source_key) {
+      worker_reader.Close();
+      worker_reader_path.clear();
+      if (!worker_reader.Open(job.source_key)) {
+        return false;
+      }
+      worker_reader_path = job.source_key;
+    }
 
     std::vector<unsigned char> rgba;
     int raw_w = 0;
     int raw_h = 0;
-    const bool ok = worker_reader.RenderPageRGBA(job.page, job.scale, rgba, raw_w, raw_h, &cancel);
-    worker_reader.Close();
-    if (!ok) {
-      runtime_log::Line("[epub_comic_runtime] async render failed page=" + std::to_string(job.page));
+    if (!worker_reader.RenderPageRGBA(job.page, job.scale, rgba, raw_w, raw_h, &cancel)) {
+      if (!cancel.load()) {
+        runtime_log::Line("[epub_comic_runtime] async render failed page=" + std::to_string(job.page));
+      }
       return false;
     }
 
@@ -548,6 +558,22 @@ struct EpubComicRuntime::Impl {
            std::abs(state.view.zoom - target_state.view.zoom) < 0.0005f;
   }
 
+  bool FindPrefetchCandidate(int dir, EpubState &candidate) const {
+    if (dir == 0) dir = 1;
+    const int step = dir >= 0 ? 1 : -1;
+    for (int distance = 1; distance <= kPrefetchLookaheadPages; ++distance) {
+      candidate = target_state;
+      candidate.location.page_num += step * distance;
+      candidate.location.y_offset = 0;
+      if (candidate.location.page_num < 0 || candidate.location.page_num >= reader.PageCount()) return false;
+      if (!HasVisualTextureForState(candidate)) {
+        ClampPage(candidate.location);
+        return true;
+      }
+    }
+    return false;
+  }
+
   bool WantsIdlePrefetch(Uint32 now) const {
     if (!reader.IsOpen()) return false;
     if (!display_valid || !visible_source.valid) return false;
@@ -555,11 +581,8 @@ struct EpubComicRuntime::Impl {
     if (request_active || prefetch_active || visual_render_delay_active) return false;
     if (!SDL_TICKS_PASSED(now, last_interaction_ticks + kIdlePrefetchDelayMs)) return false;
 
-    EpubState candidate = target_state;
-    candidate.location.page_num += (preferred_prefetch_dir >= 0) ? 1 : -1;
-    candidate.location.y_offset = 0;
-    if (candidate.location.page_num < 0 || candidate.location.page_num >= reader.PageCount()) return false;
-    return !HasVisualTextureForState(candidate);
+    EpubState candidate;
+    return FindPrefetchCandidate(preferred_prefetch_dir, candidate);
   }
 
   int SelectCacheVictim() const {
@@ -661,15 +684,14 @@ struct EpubComicRuntime::Impl {
   }
 
   void QueueAdjacentPrefetchLocked(int dir) {
-    EpubState candidate = target_state;
-    candidate.location.page_num += (dir >= 0) ? 1 : -1;
-    candidate.location.y_offset = 0;
-    if (candidate.location.page_num < 0 || candidate.location.page_num >= reader.PageCount()) return;
-    ClampPage(candidate.location);
-    if (HasVisualTextureForState(candidate)) return;
-    prefetched_state = candidate;
-    prefetch_active =
-        render_queue.Request(MakeAsyncJobForState(path, candidate, RenderScaleForState(candidate), true), true);
+    if (request_active || prefetch_active || visual_render_delay_active) return;
+    if (render_queue.IsBusyOrReady()) return;
+    EpubState candidate;
+    if (!FindPrefetchCandidate(dir, candidate)) return;
+    if (render_queue.Request(MakeAsyncJobForState(path, candidate, RenderScaleForState(candidate), true), true)) {
+      prefetched_state = candidate;
+      prefetch_active = true;
+    }
   }
 
   void MarkInteraction() { last_interaction_ticks = SDL_GetTicks(); }
@@ -714,26 +736,21 @@ struct EpubComicRuntime::Impl {
 
   void SchedulePrefetchLocked() {
     const Uint32 now = SDL_GetTicks();
+    if (render_queue.IsBusyOrReady()) return;
     if (!WantsIdlePrefetch(now)) {
       prefetch_active = false;
       return;
     }
 
-    EpubState candidate = target_state;
-    candidate.location.page_num += (preferred_prefetch_dir >= 0) ? 1 : -1;
-    candidate.location.y_offset = 0;
-    if (candidate.location.page_num < 0 || candidate.location.page_num >= reader.PageCount()) {
+    EpubState candidate;
+    if (!FindPrefetchCandidate(preferred_prefetch_dir, candidate)) {
       prefetch_active = false;
       return;
     }
-    ClampPage(candidate.location);
-    if (HasVisualTextureForState(candidate)) {
-      prefetch_active = false;
-      return;
+    if (render_queue.Request(MakeAsyncJobForState(path, candidate, RenderScaleForState(candidate), true), true)) {
+      prefetched_state = candidate;
+      prefetch_active = true;
     }
-    prefetched_state = candidate;
-    prefetch_active =
-        render_queue.Request(MakeAsyncJobForState(path, candidate, RenderScaleForState(candidate), true), true);
   }
 
   ViewportLayout ComputeViewportLayout(const EpubState &state, int content_w, int content_h) const {
@@ -971,6 +988,8 @@ bool EpubComicRuntime::Open(SDL_Renderer *renderer,
 void EpubComicRuntime::Close() {
   if (!impl_) return;
   impl_->render_queue.Shutdown();
+  impl_->worker_reader.Close();
+  impl_->worker_reader_path.clear();
   impl_->DestroyTexture();
   impl_->reader.Close();
   impl_->path.clear();
