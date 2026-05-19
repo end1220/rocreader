@@ -13,3 +13,6 @@ SDL_Texture *CreateNormalizedCoverTexture(SDL_Renderer *renderer, SDL_Surface *s
 SDL_Texture *CreateTextureFromSurface(SDL_Renderer *renderer, SDL_Surface *surface);
 SDL_Texture *CreateScaledTextureCache(SDL_Renderer *renderer, SDL_Texture *source, int width, int height);
 void DrawRect(SDL_Renderer *renderer, int x, int y, int w, int h, SDL_Color color, bool fill = true);
+int StretchHeightForWidth(int src_w, int src_h, int target_w);
+void RenderTextureStretchToWidthKeepAspect(SDL_Renderer *renderer, SDL_Texture *tex, int src_w, int src_h,
+                                           int x, int y, int target_w);

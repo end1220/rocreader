@@ -1,5 +1,7 @@
 #include "settings_runtime.h"
+
 #include "app_language.h"
+#include "sdl_utils.h"
 #include "settings_panel_router.h"
 
 #include <algorithm>
@@ -232,7 +234,10 @@ void DrawSettingsRuntime(SettingsRuntimeRenderDeps &deps) {
     int bw = 0;
     int bh = 0;
     deps.services.get_texture_size(deps.ui_assets.bottom_hint_bar, bw, bh);
-    draw_native_topmost_stretch_x(deps.ui_assets.bottom_hint_bar, 0, deps.layout.screen_h - bh, deps.layout.screen_w);
+    const int bar_h = StretchHeightForWidth(bw, bh, deps.layout.screen_w);
+    const int bar_y = deps.layout.bottom_bar_y + deps.layout.bottom_bar_h - bar_h;
+    RenderTextureStretchToWidthKeepAspect(deps.renderer, deps.ui_assets.bottom_hint_bar, bw, bh, 0, bar_y,
+                                          deps.layout.screen_w);
   } else {
     deps.services.draw_rect(0, deps.layout.bottom_bar_y, deps.layout.screen_w, deps.layout.bottom_bar_h,
                    SDL_Color{8, 10, 14, 255}, true);

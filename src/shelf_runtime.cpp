@@ -1,6 +1,8 @@
 #include "book_library_service.h"
 #include "shelf_runtime.h"
 
+#include "sdl_utils.h"
+
 #include <algorithm>
 #include <array>
 
@@ -408,7 +410,10 @@ void DrawShelfRuntime(ShelfRuntimeRenderDeps &deps) {
       int bw = 0;
       int bh = 0;
       deps.get_texture_size(deps.ui_assets.bottom_hint_bar, bw, bh);
-      draw_native_stretch_x(deps.ui_assets.bottom_hint_bar, 0, deps.layout.screen_h - bh, deps.layout.screen_w);
+      const int bar_h = StretchHeightForWidth(bw, bh, deps.layout.screen_w);
+      const int bar_y = deps.layout.bottom_bar_y + deps.layout.bottom_bar_h - bar_h;
+      RenderTextureStretchToWidthKeepAspect(deps.renderer, deps.ui_assets.bottom_hint_bar, bw, bh, 0, bar_y,
+                                            deps.layout.screen_w);
     }
     if (deps.ui_assets.nav_l1_icon) draw_native(deps.ui_assets.nav_l1_icon, deps.layout.nav_l1_x, deps.layout.nav_l1_y);
     if (deps.ui_assets.nav_r1_icon) draw_native(deps.ui_assets.nav_r1_icon, deps.layout.nav_r1_x, deps.layout.nav_r1_y);

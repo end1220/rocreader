@@ -158,3 +158,17 @@ void DrawRect(SDL_Renderer *renderer, int x, int y, int w, int h, SDL_Color colo
   if (fill) SDL_RenderFillRect(renderer, &rc);
   else SDL_RenderDrawRect(renderer, &rc);
 }
+
+int StretchHeightForWidth(int src_w, int src_h, int target_w) {
+  if (src_w <= 0 || src_h <= 0 || target_w <= 0) return 0;
+  return std::max(1, static_cast<int>(std::round(static_cast<float>(src_h) * static_cast<float>(target_w) /
+                                                   static_cast<float>(src_w))));
+}
+
+void RenderTextureStretchToWidthKeepAspect(SDL_Renderer *renderer, SDL_Texture *tex, int src_w, int src_h, int x,
+                                           int y, int target_w) {
+  if (!renderer || !tex || src_w <= 0 || src_h <= 0 || target_w <= 0) return;
+  const int target_h = StretchHeightForWidth(src_w, src_h, target_w);
+  SDL_Rect dst{x, y, target_w, target_h};
+  SDL_RenderCopy(renderer, tex, nullptr, &dst);
+}
