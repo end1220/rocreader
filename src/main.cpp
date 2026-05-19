@@ -925,11 +925,7 @@ int main(int, char **argv) {
   }
   ConfigStore config(config_path.string());
   app_context.config.config = &config;
-  if (!config.Get().audio) {
-    config.Mutable().audio = true;
-    config.MarkDirty();
-    config.Save();
-  }
+  // Temporarily keep software audio disabled; ALSA probing is too slow on some firmwares.
   avatar_badge.SelectSavedOrDefault(config.Get().selected_contributor_avatar_label);
   ProgressStore progress(progress_path.string());
   RecentPathStore favorites_store(favorites_path.string(), NormalizePathKey);
@@ -958,51 +954,29 @@ int main(int, char **argv) {
     contributor_avatar_state.focus_index = avatar_badge.SelectedIndex();
   }
   if (use_h700_defaults) {
-    bool changed = false;
-    if (input_profile == InputProfile::TrimuiBrick) {
-      system_control_service.RefreshVolumeOnly(system_settings_state.levels.volume);
-    } else if (system_control_service.ApplyVolumePercent(config.Get().system_volume_percent, system_settings_state.levels.volume) &&
-               system_settings_state.levels.volume.available) {
-      const int applied_percent =
-          std::clamp((system_settings_state.levels.volume.level * 100) /
-                         std::max(1, system_settings_state.levels.volume.max_level),
-                     0, 100);
-      if (config.Mutable().system_volume_percent != applied_percent) {
-        config.Mutable().system_volume_percent = applied_percent;
-        changed = true;
-      }
-    } else {
-      system_control_service.RefreshVolumeOnly(system_settings_state.levels.volume);
-    }
-
-    // Do not let the app mutate system brightness; only read current levels.
-    system_control_service.Refresh(system_settings_state.levels);
-    if (changed || config.IsDirty()) {
-      config.MarkDirty();
-      config.Save();
-    }
+    // Temporarily skip system volume probing; ALSA/amixer can block for ~1s on target devices.
   } else {
-    system_control_service.Refresh(system_settings_state.levels);
+    // Temporarily skip system volume probing; ALSA/amixer can block for ~1s on target devices.
   }
 
   AppUiState app_ui{};
   uint32_t last_system_volume_sync = 0;
+  (void)last_system_volume_sync;
   app_ui.volume_display_percent = ClampInt((config.Get().sfx_volume * 100) / std::max(1, SDL_MIX_MAXVOLUME), 0, 100);
   if (system_settings_state.levels.volume.available) {
     app_ui.volume_display_percent = std::clamp(
         (system_settings_state.levels.volume.level * 100) / std::max(1, system_settings_state.levels.volume.max_level),
         0, 100);
   } else {
-    int initial_system_volume_percent = 0;
-    if (volume_controller.RefreshPercent(initial_system_volume_percent)) {
-      app_ui.volume_display_percent = initial_system_volume_percent;
-    }
+    // Temporarily skip initial system volume read.
   }
   SfxBank sfx;
   bool sfx_ready = false;
   bool sfx_init_attempted = false;
   bool pending_volume_change_sfx = false;
   uint32_t pending_volume_change_sfx_due = 0;
+  (void)pending_volume_change_sfx;
+  (void)pending_volume_change_sfx_due;
   const char *system_volume_sfx_env = std::getenv("ROCREADER_SYSTEM_VOLUME_SFX_FOLLOWS_HARDWARE");
   const bool system_volume_sfx_follows_hardware =
       system_volume_sfx_env && (*system_volume_sfx_env == '1' || *system_volume_sfx_env == 'y' ||
@@ -1031,6 +1005,7 @@ int main(int, char **argv) {
     }
     return sfx_ready;
   };
+  (void)ensure_sfx_ready;
   if (verbose_log) {
     std::cout << "[native_h700] sound: config_audio=" << (config.Get().audio ? "1" : "0")
               << " backend=" << sfx.BackendName()
@@ -1038,9 +1013,8 @@ int main(int, char **argv) {
               << " volume=" << config.Get().sfx_volume << "\n";
   }
   auto play_sfx = [&](SfxId id) {
-    if (!config.Get().audio) return;
-    ensure_sfx_ready();
-    sfx.Play(id);
+    (void)id;
+    // Temporarily disable all software sound effects.
   };
   auto flush_deferred_writes = [&](bool force) {
     const uint32_t tick_now = SDL_GetTicks();
@@ -1937,40 +1911,7 @@ int main(int, char **argv) {
     }
     process_txt_transcode_step();
     flush_deferred_writes(false);
-    if (state == AppScene::Settings && volume_controller.UsesSystemVolume() && now - last_system_volume_sync >= 250) {
-      int synced_volume_percent = app_ui.volume_display_percent;
-      if (volume_controller.RefreshPercent(synced_volume_percent)) {
-        app_ui.volume_display_percent = synced_volume_percent;
-        config.Mutable().system_volume_percent = synced_volume_percent;
-      }
-      if (system_control_service.RefreshVolumeOnly(system_settings_state.levels.volume) &&
-          system_settings_state.levels.volume.available) {
-        const int menu_volume_percent = std::clamp(
-            (system_settings_state.levels.volume.level * 100) /
-                std::max(1, system_settings_state.levels.volume.max_level),
-            0, 100);
-        app_ui.volume_display_percent = menu_volume_percent;
-        config.Mutable().system_volume_percent = menu_volume_percent;
-      }
-      last_system_volume_sync = now;
-    }
-    HandleVolumeControls(
-        app_ui, input, now, volume_controller, config,
-        [&](int volume) {
-          runtime_sfx_volume = std::clamp(volume, 0, SDL_MIX_MAXVOLUME);
-          sfx.SetVolume(runtime_sfx_volume);
-        },
-        [&]() { play_sfx(SfxId::Change); },
-        [&](uint32_t due) {
-          if (!pending_volume_change_sfx) {
-            pending_volume_change_sfx = true;
-            pending_volume_change_sfx_due = due;
-          }
-        });
-    if (pending_volume_change_sfx && SDL_TICKS_PASSED(now, pending_volume_change_sfx_due)) {
-      pending_volume_change_sfx = false;
-      play_sfx(SfxId::Change);
-    }
+    // Temporarily disable system volume sync and volume-key handling.
 
     bool transient_message_dismissed_this_frame = false;
     if (transient_message_dismiss_on_input && !transient_message.empty() &&
@@ -2074,9 +2015,7 @@ int main(int, char **argv) {
       shelf_scene.HandleInput(shelf_input_context);
     } else if (state == AppScene::Settings) {
       const NativeConfig &ui_cfg = config.Get();
-      if (menu_scene.IsSelected(menu_state, SettingId::SystemControls)) {
-        system_control_service.Refresh(system_settings_state.levels);
-      }
+      // Temporarily skip system controls refresh; it can trigger slow ALSA/amixer volume probing.
       SyncContributorAvatarState(contributor_avatar_state, contributor_avatar_entries.size());
       MenuSceneInputContext menu_input_context{
           input,
